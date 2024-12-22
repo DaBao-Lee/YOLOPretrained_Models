@@ -76,7 +76,7 @@ def coco_txt_BaiDu(annotations_path: str, save_dir: str) -> None:
 
 def spilt_tran_test(li_path: str, train_img_path: str, test_img_path: str,
                      train_label_path: str, test_label_path: str, test_size: float = 0.2,
-                    random_state: int = 110, upset_photo: bool = False):
+                    random_state: int = 110, upset_photo: bool = False, verbose=True):
     """
     将数据集划分为训练集和测试集，并将图片和标签复制到指定目录。
 
@@ -100,9 +100,9 @@ def spilt_tran_test(li_path: str, train_img_path: str, test_img_path: str,
     
     img_path = [str(x) for x in list(path.glob('*.jpg')) + list(path.glob('*.png')) + list(path.glob('*.jpeg'))]
     label_path = [str(x) for x in list(path.glob('*.txt')) if "class" not in str(x)]
-
+    
     train_img = random.sample(img_path, int(len(img_path) * (1 - test_size)))
-    train_label = [x for x in label_path if x[:-3] + 'jpg' in train_img or x[:-3] + 'png' in train_img]
+    train_label = [x for x in label_path if x[:-3] + 'jpg' in train_img or x[:-3] + 'png' in train_img or x[:-3] + 'jpeg' in train_img]
     
     test_img = [x for x in img_path if x not in train_img]
     test_label = [x for x in label_path if x not in train_label]
@@ -122,32 +122,35 @@ def spilt_tran_test(li_path: str, train_img_path: str, test_img_path: str,
     print('执行复制操作'.center(80,'-'))
     for img in tqdm(train_img):
         if os.path.exists(os.path.join(train_img_path, img.split('\\')[-1])):
-            print(img, '\r已存在', end='')
+            if verbose: print(img, '\r已存在', end='')
         else:
             shutil.copy2(img, train_img_path)
-            print(img, '已复制至', train_img_path)
-    
+            if verbose: print(img, '已复制至', train_img_path)
+    print("训练图片复制完毕")
     for img in tqdm(test_img):
         if os.path.exists(os.path.join(test_img_path, img.split('\\')[-1])):
-            print(img, '\r已存在', test_img_path, end='')
+            if verbose: print(img, '\r已存在', test_img_path, end='')
         else:
             shutil.copy2(img, test_img_path)
-            print(img, '已复制至', test_img_path)
+            if verbose: print(img, '已复制至', test_img_path)
     
+    print("测试图片复制完毕")
     for label in tqdm(train_label):
         if os.path.exists(os.path.join(train_label_path, label.split('\\')[-1])):
-            print(label, '\r已存在', train_label_path, end='')
+            if verbose: print(label, '\r已存在', train_label_path, end='')
         else:
             shutil.copy2(label, train_label_path)
-            print(label, '已复制至', train_label_path)
+            if verbose: print(label, '已复制至', train_label_path)
     
+    print("训练标签复制完毕")
     for label in tqdm(test_label):
         if os.path.exists(os.path.join(test_label_path, label.split('\\')[-1])):
-            print(label, '\r已存在', test_label_path, end='')
+            if verbose: print(label, '\r已存在', test_label_path, end='')
         else:
             shutil.copy2(label, test_label_path)
-            print(label, '已复制至', test_label_path)
+            if verbose: print(label, '已复制至', test_label_path)
     
+    print("测试标签复制完毕")
     print()
     print('执行完毕'.center(80,'-'))
 
@@ -207,19 +210,21 @@ def predict(model_selection: str, img_path: str, conf: float = 0.8, save: bool =
     model = YOLO(model_selection)
     model(source=img_path, conf=conf, show=show, save=save, verbose=verbose, stream=stream)
     
-    cv2.waitKey(-1)
-
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+    
 if __name__ == '__main__':
     """
     主程序入口，用于调用训练、预测或数据预处理函数。
     """
-    train_img_path = 'data\\images\\train'
-    test_img_path = 'data\\images\\val'
-
-    train_label_path = 'data\\labels\\train'
-    test_label_path = 'data\\labels\\val'
     # 示例调用：
     # train(r"best.pt", yaml_data=r"data\\data.yaml", epochs=100, batch=16, save_period=-1, project="./runs/exp1", val=True, seed_change=False)
     # predict(r"runs\exp1\train\weights\best.pt", img_path=r"data\images\train\P3_No009.jpg", conf=0.7, verbose=False, stream=False, save=True)
-    # spilt_tran_test(r'./faces', train_img_path, test_img_path, train_label_path, test_label_path, test_size=0.15, random_state=99, upset_photo=True)
     # coco_to_txt(annotations_path="data/annotations", save_dir="data/new_label", use_segments=True)
+    """
+    spilt_tran_test("./Annotations/meta/",
+                 "data/train/images/", "data/val/images/",
+                "data/train/labels/", "data/val/labels/",
+                test_size=0.2, random_state=10, 
+                upset_photo=True, verbose=False)
+    """
