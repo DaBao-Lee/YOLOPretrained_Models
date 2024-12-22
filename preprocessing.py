@@ -109,12 +109,12 @@ def spilt_tran_test(li_path: str, train_img_path: str, test_img_path: str,
     test_label = [x for x in label_path if x not in train_label]
     
     if upset_photo:
-        t_img = './data/images/train'
-        v_img = './data/images/val'
+        t_img = train_img_path
+        v_img = test_img_path
 
-        t_label = './data/labels/train'
-        v_label = './data/labels/val'
-
+        t_label = train_label_path
+        v_label = test_label_path
+        
         tree = list(Path(t_img).glob('*.*')) + list(Path(v_img).glob('*.*')) + list(Path(t_label).glob('*.*')) + list(Path(v_label).glob('*.*'))
         for file in tree:
             os.unlink(str(file))
