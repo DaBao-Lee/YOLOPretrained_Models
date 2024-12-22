@@ -1,4 +1,5 @@
 import numpy as np
+from enum import Enum
 from pathlib import Path
 from tqdm.auto import tqdm
 from ultralytics import YOLO
@@ -189,6 +190,42 @@ def train(model_selection: str, yaml_data: str, epochs: int = 100, batch: int = 
     
     print(f'Echo: In this train time, we use the seed of {seed}.')
 
+class InferDataType(Enum):
+    """
+    定义了用于推理的数据类型枚举类。
+
+    成员:
+    - IMAGE: 表示图像类型的数据。
+    - DIR: 表示目录类型的数据。
+    """
+    IMAGE = "image"
+    DIR = "dir"
+
+def get_infer_data(path_dir: str, typing: InferDataType = InferDataType.IMAGE, max_num: int = 5):
+    """
+    根据指定类型从给定目录中获取推理数据。
+
+    参数:
+    - path_dir (str): 目录路径，用于查找推理数据。
+    - typing (InferDataType): 指定推理数据的类型，默认为图像类型（InferDataType.IMAGE）。
+    - max_num (int): 返回的最大数据数量，默认为5。
+
+    返回:
+    - 如果 `typing` 为 `InferDataType.IMAGE`，则返回最多 `max_num` 个随机图像文件路径的列表。
+    - 如果 `typing` 为 `InferDataType.DIR`，则返回目录中所有图像文件路径的列表。
+    """
+
+    # 获取指定目录下的所有符合条件的图像文件路径
+    imgs = [x for x in Path(path_dir).glob('*.*') if "jpg" in str(x) or "png" in str(x) or "jpeg" in str(x)]
+
+    if typing == InferDataType.IMAGE:
+        # 对于图像类型，随机抽取最多 max_num 个图像文件路径
+        return random.sample(list(imgs), min(max_num, len(imgs)))
+
+    elif typing == InferDataType.DIR:
+        # 对于目录类型，返回所有图像文件路径
+        return imgs
+
 def predict(model_selection: str, img_path: str, conf: float = 0.8, save: bool = False,
                 show: bool = True, verbose: bool = True, stream: bool = False):
     """
@@ -213,6 +250,7 @@ def predict(model_selection: str, img_path: str, conf: float = 0.8, save: bool =
     cv2.waitKey(0)
     cv2.destroyAllWindows()
     
+
 if __name__ == '__main__':
     """
     主程序入口，用于调用训练、预测或数据预处理函数。
@@ -228,3 +266,5 @@ if __name__ == '__main__':
                 test_size=0.2, random_state=10, 
                 upset_photo=True, verbose=False)
     """
+    train(model_selection='./yolo11n.pt', yaml_data="./data/data.yaml",
+      val=True, epochs=300, batch=-1, seed_change=False, imgsz=640)
