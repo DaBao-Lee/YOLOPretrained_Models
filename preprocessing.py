@@ -2,9 +2,9 @@ import numpy as np
 from enum import Enum
 from pathlib import Path
 from tqdm.auto import tqdm
-from ultralytics import YOLO
 from collections import defaultdict
 import os, cv2, json, shutil, random
+from ultralytics import YOLO, YOLOWorld
 from ultralytics.data.converter import convert_coco
 
 def coco_to_txt(annotations_path: str, save_dir: str, use_segments=True) -> None:
@@ -90,6 +90,7 @@ def spilt_tran_test(li_path: str, train_img_path: str, test_img_path: str,
     - test_size (float): 测试集比例，默认为0.2。
     - random_state (int): 随机种子，默认为110。
     - upset_photo (bool): 是否重置训练文件，默认为False。
+    - verbose (bool): 是否输出详细信息，默认为True。
 
     功能:
     1. 根据随机种子划分图片和标签为训练集和测试集。
@@ -103,7 +104,7 @@ def spilt_tran_test(li_path: str, train_img_path: str, test_img_path: str,
     label_path = [str(x) for x in list(path.glob('*.txt')) if "class" not in str(x)]
     
     train_img = random.sample(img_path, int(len(img_path) * (1 - test_size)))
-    train_label = [x for x in label_path if x[:-3] + 'jpg' in train_img or x[:-3] + 'png' in train_img or x[:-3] + 'jpeg' in train_img]
+    train_label = [x for x in label_path if any(x[:-4] + ext in train_img for ext in ['.jpg', '.png', '.jpeg'])]
     
     test_img = [x for x in img_path if x not in train_img]
     test_label = [x for x in label_path if x not in train_label]
@@ -122,14 +123,14 @@ def spilt_tran_test(li_path: str, train_img_path: str, test_img_path: str,
 
     print('执行复制操作'.center(80,'-'))
     for img in tqdm(train_img):
-        if os.path.exists(os.path.join(train_img_path, img.split('\\')[-1])):
+        if os.path.exists(os.path.join(train_img_path, os.path.basename(img))):
             if verbose: print(img, '\r已存在', end='')
         else:
             shutil.copy2(img, train_img_path)
             if verbose: print(img, '已复制至', train_img_path)
     print("训练图片复制完毕")
     for img in tqdm(test_img):
-        if os.path.exists(os.path.join(test_img_path, img.split('\\')[-1])):
+        if os.path.exists(os.path.join(test_img_path, os.path.basename(img))):
             if verbose: print(img, '\r已存在', test_img_path, end='')
         else:
             shutil.copy2(img, test_img_path)
@@ -137,7 +138,7 @@ def spilt_tran_test(li_path: str, train_img_path: str, test_img_path: str,
     
     print("测试图片复制完毕")
     for label in tqdm(train_label):
-        if os.path.exists(os.path.join(train_label_path, label.split('\\')[-1])):
+        if os.path.exists(os.path.join(train_label_path, os.path.basename(label))):
             if verbose: print(label, '\r已存在', train_label_path, end='')
         else:
             shutil.copy2(label, train_label_path)
@@ -145,7 +146,7 @@ def spilt_tran_test(li_path: str, train_img_path: str, test_img_path: str,
     
     print("训练标签复制完毕")
     for label in tqdm(test_label):
-        if os.path.exists(os.path.join(test_label_path, label.split('\\')[-1])):
+        if os.path.exists(os.path.join(test_label_path, os.path.basename(label))):
             if verbose: print(label, '\r已存在', test_label_path, end='')
         else:
             shutil.copy2(label, test_label_path)
@@ -155,15 +156,17 @@ def spilt_tran_test(li_path: str, train_img_path: str, test_img_path: str,
     print()
     print('执行完毕'.center(80,'-'))
 
-def train(model_selection: str, yaml_data: str, epochs: int = 100, batch: int = -1, val: bool = True,
+def train(model_selection: str, yaml_data: str, yolo_world: bool=False, epochs: int = 100, batch: int = -1, val: bool = True,
            save_period: int = -1, project: str = None, pretrained: str = None, single_cls: bool = False,
-             lr: float = 0.001, workers: int = 0, seed_change: bool = False, cls: float = 0.5, imgsz: int = 640):
+             lr: float = 0.001, workers: int = 0, seed_change: bool = False, cls: float = 0.5, imgsz: int = 640,
+             optimizer="auto", patience=100):
     """
-    训练YOLO模型。
+    训练YOLO/YOLOWORLD模型。
 
     参数:
-    - model_selection (str): 模型选择，例如"yolov5s"。
+    - model_selection (str): 模型选择，例如"yolo11n.pt"。
     - yaml_data (str): 数据配置文件路径。
+    - yolo_world (bool): 是否使用YOLOWorld模型，默认为False。
     - epochs (int): 训练轮数，默认为100。
     - batch (int): 批次大小，默认为-1（自动选择）。
     - val (bool): 是否进行验证，默认为True。
@@ -176,19 +179,42 @@ def train(model_selection: str, yaml_data: str, epochs: int = 100, batch: int = 
     - seed_change (bool): 是否随机生成种子，默认为False。
     - cls (float): 分类损失权重，默认为0.5。
     - imgsz (int): 图片尺寸，默认为640。
+    - optimizer (str): 优化器类型，默认为"auto"。
+    - patience (int): 早停耐心值，默认为100。
 
     功能:
     1. 设置随机种子（如果需要）。
-    2. 加载YOLO模型并开始训练。
+    2. 加载YOLO/YOLOWORLD模型并开始训练。
     3. 打印使用的随机种子。
     """
     seed = random.randint(1, 1e9) if seed_change else 1
-    model = YOLO(model_selection)
+    if yolo_world: model = YOLOWorld(model_selection)
+    else: model = YOLO(model_selection)
     model.train(data=yaml_data, epochs=epochs, workers=workers, batch=batch,
                 save_period=save_period, val=val, pretrained=pretrained,
-                project=project, lr0=lr, single_cls=single_cls, imgsz=imgsz, seed=seed, cls=cls)
+                project=project, lr0=lr, single_cls=single_cls, imgsz=imgsz,
+                  seed=seed, cls=cls, optimizer=optimizer, patience=patience)
     
     print(f'Echo: In this train time, we use the seed of {seed}.')
+
+def eval(model_selection: str, yaml_data: str, yolo_world=False) -> None:
+    """
+    使用指定的模型和数据集评估模型。
+
+    参数:
+    - model_selection (str): 模型选择，用于创建YOLO模型实例。
+    - yaml_data (str): 包含数据集的YAML文件路径，或数据集内容的YAML格式。
+    - yolo_world (bool): 是否使用YOLOWorld模型，默认为False。
+
+    功能:
+    1. 根据模型选择创建YOLO/YOLOWORLD模型实例。
+    2. 使用提供的数据集（YAML格式）评估模型。
+    3. 打印评估完成信息。
+    """
+    if yolo_world: YOLOWorld(model_selection).val(data=yaml_data)
+    else: YOLO(model_selection).val(data=yaml_data)
+    
+    print("Evaluation finished.")
 
 class InferDataType(Enum):
     """
@@ -214,7 +240,6 @@ def get_infer_data(path_dir: str, typing: InferDataType = InferDataType.IMAGE, m
     - 如果 `typing` 为 `InferDataType.IMAGE`，则返回最多 `max_num` 个随机图像文件路径的列表。
     - 如果 `typing` 为 `InferDataType.DIR`，则返回目录中所有图像文件路径的列表。
     """
-
     # 获取指定目录下的所有符合条件的图像文件路径
     imgs = [x for x in Path(path_dir).glob('*.*') if "jpg" in str(x) or "png" in str(x) or "jpeg" in str(x)]
 
@@ -226,14 +251,15 @@ def get_infer_data(path_dir: str, typing: InferDataType = InferDataType.IMAGE, m
         # 对于目录类型，返回所有图像文件路径
         return imgs
 
-def predict(model_selection: str, img_path: str, conf: float = 0.8, save: bool = False,
+def predict(model_selection: str, img_path: str, yolo_world=False, conf: float = 0.8, save: bool = False,
                 show: bool = True, verbose: bool = True, stream: bool = False):
     """
-    使用YOLO模型进行预测。
+    使用YOLO/YOLOWORLD模型进行预测。
 
     参数:
-    - model_selection (str): 模型选择，例如"yolov5s.pt"。
+    - model_selection (str): 模型选择，例如"yolo11n.pt"。
     - img_path (str): 输入图片路径。
+    - yolo_world (bool): 是否使用YOLOWorld模型，默认为False。
     - conf (float): 置信度阈值，默认为0.8。
     - save (bool): 是否保存结果，默认为False。
     - show (bool): 是否显示结果，默认为True。
@@ -241,10 +267,11 @@ def predict(model_selection: str, img_path: str, conf: float = 0.8, save: bool =
     - stream (bool): 是否流式处理，默认为False。
 
     功能:
-    1. 加载YOLO模型并进行推理。
+    1. 加载YOLO/YOLOWORLD模型并进行推理。
     2. 显示或保存推理结果。
     """
-    model = YOLO(model_selection)
+    if yolo_world: model = YOLOWorld(model_selection)
+    else: model = YOLO(model_selection)
     model(source=img_path, conf=conf, show=show, save=save, verbose=verbose, stream=stream)
     
     cv2.waitKey(0)
@@ -256,15 +283,14 @@ if __name__ == '__main__':
     主程序入口，用于调用训练、预测或数据预处理函数。
     """
     # 示例调用：
-    # train(r"best.pt", yaml_data=r"data\\data.yaml", epochs=100, batch=16, save_period=-1, project="./runs/exp1", val=True, seed_change=False)
     # predict(r"runs\exp1\train\weights\best.pt", img_path=r"data\images\train\P3_No009.jpg", conf=0.7, verbose=False, stream=False, save=True)
     # coco_to_txt(annotations_path="data/annotations", save_dir="data/new_label", use_segments=True)
-    """
     spilt_tran_test("./Annotations/meta/",
                  "data/train/images/", "data/val/images/",
                 "data/train/labels/", "data/val/labels/",
-                test_size=0.2, random_state=10, 
-                upset_photo=True, verbose=False)
-    """
-    train(model_selection='./yolo11n.pt', yaml_data="./data/data.yaml",
-      val=True, epochs=300, batch=-1, seed_change=False, imgsz=640)
+                test_size=0.15, random_state=random.randint(1, 1e7), 
+                upset_photo=False, verbose=False)
+
+    train(model_selection='./best.pt', yaml_data="./data/data.yaml", yolo_world=True,
+      val=True, epochs=100, batch=-1, seed_change=True, imgsz=640, patience=50)
+    
