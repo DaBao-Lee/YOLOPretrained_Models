@@ -29,6 +29,8 @@ def coco_to_txt(annotations_path: str, save_dir: str, use_segments=True) -> None
 def coco_txt_BaiDu(annotations_path: str, save_dir: str) -> None:
     """
     将COCO格式的JSON标注文件转换为YOLO格式的txt文件（百度版本）。
+    
+    请注意该COCO格式由百度智能控制台导出所得，若coco_to_txt无法正常工作，请使用本函数。
 
     参数:
     - annotations_path (str): COCO格式的标注文件路径。
@@ -159,7 +161,7 @@ def spilt_tran_test(li_path: str, train_img_path: str, test_img_path: str,
 def train(model_selection: str, yaml_data: str, yolo_world: bool=False, epochs: int = 100, batch: int = -1, val: bool = True,
            save_period: int = -1, project: str = None, pretrained: str = None, single_cls: bool = False,
              lr: float = 0.001, workers: int = 0, seed_change: bool = False, cls: float = 0.5, imgsz: int = 640,
-             optimizer="auto", patience=100):
+             optimizer="auto", patience=100, resume: bool = False):
     """
     训练YOLO/YOLOWORLD模型。
 
@@ -181,6 +183,7 @@ def train(model_selection: str, yaml_data: str, yolo_world: bool=False, epochs: 
     - imgsz (int): 图片尺寸，默认为640。
     - optimizer (str): 优化器类型，默认为"auto"。
     - patience (int): 早停耐心值，默认为100。
+    - resume (bool): 是否恢复训练，默认为False。
 
     功能:
     1. 设置随机种子（如果需要）。
@@ -193,7 +196,8 @@ def train(model_selection: str, yaml_data: str, yolo_world: bool=False, epochs: 
     model.train(data=yaml_data, epochs=epochs, workers=workers, batch=batch,
                 save_period=save_period, val=val, pretrained=pretrained,
                 project=project, lr0=lr, single_cls=single_cls, imgsz=imgsz,
-                  seed=seed, cls=cls, optimizer=optimizer, patience=patience)
+                  seed=seed, cls=cls, optimizer=optimizer, patience=patience,
+                  resume=resume)
     
     print(f'Echo: In this train time, we use the seed of {seed}.')
 
@@ -288,9 +292,9 @@ if __name__ == '__main__':
     spilt_tran_test("./Annotations/meta/",
                  "data/train/images/", "data/val/images/",
                 "data/train/labels/", "data/val/labels/",
-                test_size=0.15, random_state=random.randint(1, 1e7), 
-                upset_photo=False, verbose=False)
+                test_size=0.2, random_state=random.randint(1, 1e7), 
+                upset_photo=True, verbose=False)
 
-    train(model_selection='./best.pt', yaml_data="./data/data.yaml", yolo_world=True,
-      val=True, epochs=100, batch=-1, seed_change=True, imgsz=640, patience=50)
-    
+    train(model_selection='./best.pt', yaml_data="./data/data.yaml",
+     yolo_world=True, val=True, epochs=150, batch=-1, seed_change=True,
+     imgsz=640, patience=50, resume=False, lr=0.00001, optimizer="AdamW")
