@@ -11,6 +11,8 @@ def coco_to_txt(annotations_path: str, save_dir: str, use_segments=True) -> None
     """
     将COCO格式的标注文件转换为YOLO格式的txt文件。
 
+    百度智能控制台导出的COCO格式可能转换成功，若转换失败请使用coco_txt_BaiDu
+
     参数:
     - annotations_path (str): COCO格式的标注文件路径。
     - save_dir (str): 保存转换后的txt文件的目录。
@@ -30,7 +32,7 @@ def coco_txt_BaiDu(annotations_path: str, save_dir: str) -> None:
     """
     将COCO格式的JSON标注文件转换为YOLO格式的txt文件（百度版本）。
     
-    请注意该COCO格式由百度智能控制台导出所得，若coco_to_txt无法正常工作，请使用本函数。
+    该COCO格式由百度智能控制台导出所得，若coco_to_txt无法正常工作，请使用本函数。
 
     参数:
     - annotations_path (str): COCO格式的标注文件路径。
@@ -245,7 +247,7 @@ def get_infer_data(path_dir: str, typing: InferDataType = InferDataType.IMAGE, m
     - 如果 `typing` 为 `InferDataType.DIR`，则返回目录中所有图像文件路径的列表。
     """
     # 获取指定目录下的所有符合条件的图像文件路径
-    imgs = [x for x in Path(path_dir).glob('*.*') if "jpg" in str(x) or "png" in str(x) or "jpeg" in str(x)]
+    imgs = [str(x) for x in Path(path_dir).glob('*.*') if "jpg" in str(x) or "png" in str(x) or "jpeg" in str(x)]
 
     if typing == InferDataType.IMAGE:
         # 对于图像类型，随机抽取最多 max_num 个图像文件路径
@@ -292,9 +294,9 @@ if __name__ == '__main__':
     spilt_tran_test("./Annotations/meta/",
                  "data/train/images/", "data/val/images/",
                 "data/train/labels/", "data/val/labels/",
-                test_size=0.2, random_state=random.randint(1, 1e7), 
+                test_size=0.3, random_state=random.randint(1, 1e7), 
                 upset_photo=True, verbose=False)
 
-    train(model_selection='./best.pt', yaml_data="./data/data.yaml",
-     yolo_world=True, val=True, epochs=150, batch=-1, seed_change=True,
-     imgsz=640, patience=50, resume=False, lr=0.00001, optimizer="AdamW")
+    train(model_selection='./data/yolov8s-worldv2.pt', yaml_data="./data/data.yaml",
+     yolo_world=True, val=True, epochs=350, batch=20, seed_change=True,
+     imgsz=640, patience=100, resume=False)
