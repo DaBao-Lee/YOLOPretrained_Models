@@ -166,7 +166,7 @@ def spilt_tran_test(li_path: str, train_img_path: str, test_img_path: str,
 def train(model_selection: str, yaml_data: str, yolo_world: bool=False, epochs: int = 100, batch: int = -1, val: bool = True,
            save_period: int = -1, project: str = None, pretrained: str = None, single_cls: bool = False,
              lr: float = 0.001, workers: int = 0, seed_change: bool = False, cls: float = 0.5, imgsz: int = 640,
-             optimizer="auto", patience=100, resume: bool = False):
+             optimizer="auto", patience=100, resume: bool = False, plots=True, cos_lr=True):
     """
     训练YOLO/YOLOWORLD模型。
 
@@ -189,6 +189,8 @@ def train(model_selection: str, yaml_data: str, yolo_world: bool=False, epochs: 
     - optimizer (str): 优化器类型，默认为"auto"。
     - patience (int): 早停耐心值，默认为100。
     - resume (bool): 是否恢复训练，默认为False。
+    - plots (bool): 是否绘制训练曲线，默认为True。
+    - cos_lr (bool): 是否使用余弦退火学习率，默认为True。
 
     功能:
     1. 设置随机种子（如果需要）。
@@ -202,7 +204,7 @@ def train(model_selection: str, yaml_data: str, yolo_world: bool=False, epochs: 
                 save_period=save_period, val=val, pretrained=pretrained,
                 project=project, lr0=lr, single_cls=single_cls, imgsz=imgsz,
                   seed=seed, cls=cls, optimizer=optimizer, patience=patience,
-                  resume=resume)
+                  resume=resume, plots=plots, cos_lr=cos_lr)
     
     print(f'Echo: In this train time, we use the seed of {seed}.')
 
@@ -297,11 +299,11 @@ if __name__ == '__main__':
     spilt_tran_test("./meta700/",
                  "data/train/images/", "data/val/images/",
                 "data/train/labels/", "data/val/labels/",
-                test_size=0.1, random_state=230, 
+                test_size=0.2, random_state=230, 
                 upset_photo=True, verbose=False)
 
-    train(model_selection='./best.pt', yaml_data="./data/data.yaml",
-     yolo_world=False, val=True, epochs=250, batch=84, seed_change=False,
-     imgsz=320, patience=100, resume=False, lr=0.0007, optimizer="AdamW")
+    train(model_selection='./yolo11n.pt', yaml_data="./data/data.yaml",
+     yolo_world=False, val=True, epochs=300, batch=84, seed_change=False,
+     imgsz=320, patience=100, resume=False, single_cls=True, lr=0.001, optimizer="SGD")
     
     # , lr=0.0007, optimizer="SGD"
