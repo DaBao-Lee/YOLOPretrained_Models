@@ -1,11 +1,15 @@
 import numpy as np
+from PIL import Image
 from enum import Enum
+from lxml import etree
 from pathlib import Path
 from tqdm.auto import tqdm
 from collections import defaultdict
-import os, cv2, json, shutil, random
 from ultralytics import YOLO, YOLOWorld
+import os, cv2, json, shutil, random, logging
 from ultralytics.data.converter import convert_coco
+
+logging.basicConfig(level=logging.INFO)
 
 def coco_to_txt(annotations_path: str, save_dir: str, use_segments=True) -> None:
     """
@@ -26,7 +30,7 @@ def coco_to_txt(annotations_path: str, save_dir: str, use_segments=True) -> None
         shutil.rmtree(save_dir)
         
     convert_coco(annotations_path, save_dir=save_dir, use_segments=use_segments, lvis=False, cls91to80=True)
-    print('转换完成'.center(50,'-'))
+    logging.info('转换完成')
 
 def coco_txt_BaiDu(annotations_path: str, save_dir: str) -> None:
     """
@@ -78,6 +82,70 @@ def coco_txt_BaiDu(annotations_path: str, save_dir: str) -> None:
                     for i in bbox[1:]:
                         t.write("%g " % i)
                     t.write("\n")
+    logging.info('转换完成')
+
+def voc_to_txt(annotations_path: str, save_dir: str, obj_dict: dict=None) -> None:
+    """
+    将VOC格式的注释文件转换为YOLO格式的.txt文件。
+    
+    参数:
+    - annotations_path(str): 注释文件所在的路径。
+    - save_dir(str): 转换后的.txt文件保存目录。
+    - obj_dict(dict): 包含对象名称与类别编号的字典 e.g {"wheel": 0, "handle": 1, "base": 2}
+    """
+    assert save_dir.endswith('/') , 'save_dir 必须以 / 结尾'
+    assert obj_dict is not None, '请输入对象名称与类别编号的字典'
+
+
+    if os.path.exists(save_dir):
+        shutil.rmtree(save_dir)
+    os.mkdir(save_dir)
+    
+    xmls = [str(x) for x in Path(annotations_path).glob('*.xml')]
+    for xml_name in tqdm(xmls):
+
+        txt_name = xml_name.replace('xml', 'txt').split('/')[-1]
+        f = open(save_dir + txt_name, '+w')   # 代开待写入的txt文件
+        with open(xml_name, 'rb') as fp:
+            
+            xml = etree.HTML(fp.read())
+            width = int(xml.xpath('//size/width/text()')[0])
+            height = int(xml.xpath('//size/height/text()')[0])
+            
+            obj = xml.xpath('//object')
+            for each in obj:
+                name = each.xpath("./name/text()")[0]
+                classes = obj_dict[name]
+                xmin = int(each.xpath('./bndbox/xmin/text()')[0])
+                xmax = int(each.xpath('./bndbox/xmax/text()')[0])
+                ymin = int(each.xpath('./bndbox/ymin/text()')[0])
+                ymax = int(each.xpath('./bndbox/ymax/text()')[0])
+                
+                dw = 1 / width
+                dh = 1 / height
+                x_center = (xmin + xmax) / 2
+                y_center = (ymax + ymin) / 2
+                w = (xmax - xmin)
+                h = (ymax - ymin)
+                x, y, w, h = x_center * dw, y_center * dh, w * dw, h * dh
+               
+                f.write(str(classes) + ' ' + str(x) + ' ' + str(y) + ' ' + str(w) + ' ' + str(h) + ' ' + '\n')
+            f.close()
+    logging.info('转换完成')
+
+def rm_icc_profile(src_path: str) -> None:
+    """
+    从指定路径中的所有PNG图像文件中移除ICC色彩配置文件。
+
+    参数: src_path (str): 包含PNG图像文件的目录路径。
+
+    """
+    src_path = [str(x) for x in Path(src_path).glob('*.png')]
+    for path in tqdm(src_path):
+        img = Image.open(path)
+        img.save(path, format="PNG", icc_profile=None)
+    
+    logging.info('icc_profile 已删除')
 
 def copy_files(src_files: list, dest_dir: str, verbose: bool = True) -> None:
     """
@@ -92,15 +160,15 @@ def copy_files(src_files: list, dest_dir: str, verbose: bool = True) -> None:
         dest_path = os.path.join(dest_dir, os.path.basename(file))
         if os.path.exists(dest_path):
             if verbose:
-                print(f"{file} 已存在", end='\r')
+                logging.info(f"{file} 已存在", end='\r')
         else:
             shutil.copy2(file, dest_dir)
             if verbose:
-                print(f"{file} 已复制至 {dest_dir}")
+                logging.info(f"{file} 已复制至 {dest_dir}")
 
 def spilt_train_test(li_path: str, train_img_path: str, test_img_path: str,
-                     train_label_path: str, test_label_path: str, test_size: float = 0.2,
-                    random_state: int = 110, upset_photo: bool = False, verbose=True):
+                     train_label_path: str, test_label_path: str, test_size: float = None,
+                     random_state: int = 110, upset_photo: bool = False, verbose=True):
     """
     将数据集划分为训练集和测试集，并将图片和标签复制到指定目录。
 
@@ -110,7 +178,7 @@ def spilt_train_test(li_path: str, train_img_path: str, test_img_path: str,
     - test_img_path (str): 测试集图片保存路径。
     - train_label_path (str): 训练集标签保存路径。
     - test_label_path (str): 测试集标签保存路径。
-    - test_size (float): 测试集比例，默认为0.2。
+    - test_size (float): 测试集比例，默认为None。
     - random_state (int): 随机种子，默认为110。
     - upset_photo (bool): 是否重置训练文件，默认为False。
     - verbose (bool): 是否输出详细信息，默认为True。
@@ -126,11 +194,14 @@ def spilt_train_test(li_path: str, train_img_path: str, test_img_path: str,
     img_path = [str(x) for x in list(path.glob('*.jpg')) + list(path.glob('*.png')) + list(path.glob('*.jpeg'))]
     label_path = [str(x) for x in list(path.glob('*.txt')) if "class" not in str(x)]
     
-    train_img = random.sample(img_path, int(len(img_path) * (1 - test_size)))
-    train_label = [x for x in label_path if any(x[:-4] + ext in train_img for ext in ['.jpg', '.png', '.jpeg'])]
+    if test_size is not None:
+        test_img = random.sample(img_path, int(len(img_path) * test_size))
+    else:
+        test_img = random.sample(img_path, 100)
+    test_label = [x for x in label_path if any(x[:-4] + ext in test_img for ext in ['.jpg', '.png', '.jpeg'])]
     
-    test_img = [x for x in img_path if x not in train_img]
-    test_label = [x for x in label_path if x not in train_label]
+    train_img = [x for x in img_path if x not in test_img]
+    train_label = [x for x in label_path if x not in test_label]
     
     if upset_photo:
         t_img = train_img_path
@@ -142,29 +213,28 @@ def spilt_train_test(li_path: str, train_img_path: str, test_img_path: str,
         tree = list(Path(t_img).glob('*.*')) + list(Path(v_img).glob('*.*')) + list(Path(t_label).glob('*.*')) + list(Path(v_label).glob('*.*'))
         for file in tree:
             os.unlink(str(file))
-        print('已删除所有训练文件.')
+        logging.info('已删除所有训练文件.')
 
-    print('执行复制操作'.center(80,'-'))
+    logging.info('执行复制操作')
     
     copy_files(train_img, train_img_path, verbose)
-    print("训练图片复制完毕")
+    logging.info("训练图片复制完毕")
     
     copy_files(test_img, test_img_path, verbose)
-    print("测试图片复制完毕")
+    logging.info("测试图片复制完毕")
     
     copy_files(train_label, train_label_path, verbose)
-    print("训练标签复制完毕")
+    logging.info("训练标签复制完毕")
     
     copy_files(test_label, test_label_path, verbose)
-    print("测试标签复制完毕")
+    logging.info("测试标签复制完毕")
     
-    print()
-    print('执行完毕'.center(80,'-'))
+    logging.info('执行完毕')
 
 def train(model_selection: str, yaml_data: str, yolo_world: bool=False, epochs: int = 100, batch: int = -1, val: bool = True,
            save_period: int = -1, project: str = None, pretrained: str = None, single_cls: bool = False,
              lr: float = 0.001, workers: int = 0, seed_change: bool = False, cls: float = 0.5, imgsz: int = 640,
-             optimizer="auto", patience=100, resume: bool = False, plots=True, cos_lr=True):
+             optimizer="SGD", patience=100, resume: bool = False, plots=True, cos_lr=True):
     """
     训练YOLO/YOLOWORLD模型。
 
@@ -204,7 +274,7 @@ def train(model_selection: str, yaml_data: str, yolo_world: bool=False, epochs: 
                   seed=seed, cls=cls, optimizer=optimizer, patience=patience,
                   resume=resume, plots=plots, cos_lr=cos_lr)
     
-    print(f'Echo: In this train time, we use the seed of {seed}.')
+    logging.info(f'Echo: In this train time, we use the seed of {seed}.')
 
 def eval(model_selection: str, yaml_data: str, yolo_world=False) -> None:
     """
@@ -223,7 +293,7 @@ def eval(model_selection: str, yaml_data: str, yolo_world=False) -> None:
     if yolo_world: YOLOWorld(model_selection).val(data=yaml_data)
     else: YOLO(model_selection).val(data=yaml_data)
     
-    print("Evaluation finished.")
+    logging.info("Evaluation finished.")
 
 class InferDataType(Enum):
     """
@@ -294,14 +364,14 @@ if __name__ == '__main__':
     # 示例调用：
     # predict(r"runs\exp1\train\weights\best.pt", img_path=r"data\images\train\P3_No009.jpg", conf=0.7, verbose=False, stream=False, save=True)
     # coco_to_txt(annotations_path="data/annotations", save_dir="data/new_label", use_segments=True)
-    # spilt_train_test("./meta700/",
-    #              "data/train/images/", "data/val/images/",
-    #             "data/train/labels/", "data/val/labels/",
-    #             test_size=0.1, random_state=230, 
-    #             upset_photo=True, verbose=False)
+    spilt_train_test("./meta700/",
+                 "data/train/images/", "data/val/images/",
+                "data/train/labels/", "data/val/labels/",
+                test_size=None, random_state=random.randint(1, 1e9), 
+                upset_photo=True, verbose=False)
 
-    train(model_selection='./yolo11n.pt', yaml_data="./data/data.yaml",
+    train(model_selection='./best.pt', yaml_data="./data/data.yaml",
      yolo_world=False, val=True, epochs=200, batch=84, seed_change=False,
-     imgsz=320, resume=False, single_cls=True, lr=0.002, optimizer="SGD")
+     imgsz=320, resume=False, single_cls=True, lr=0.0007, optimizer="SGD")
     
     # , lr=0.0007, optimizer="SGD"
