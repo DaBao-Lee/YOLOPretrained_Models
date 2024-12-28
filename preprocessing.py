@@ -3,9 +3,12 @@ from enum import Enum
 from pathlib import Path
 from tqdm.auto import tqdm
 from collections import defaultdict
+from warnings import filterwarnings
 import os, cv2, json, shutil, random
 from ultralytics import YOLO, YOLOWorld
 from ultralytics.data.converter import convert_coco
+
+filterwarnings("ignore")
 
 def coco_to_txt(annotations_path: str, save_dir: str, use_segments=True) -> None:
     """
@@ -291,12 +294,14 @@ if __name__ == '__main__':
     # 示例调用：
     # predict(r"runs\exp1\train\weights\best.pt", img_path=r"data\images\train\P3_No009.jpg", conf=0.7, verbose=False, stream=False, save=True)
     # coco_to_txt(annotations_path="data/annotations", save_dir="data/new_label", use_segments=True)
-    spilt_tran_test("./Annotations/meta/",
+    spilt_tran_test("./meta700/",
                  "data/train/images/", "data/val/images/",
                 "data/train/labels/", "data/val/labels/",
-                test_size=0.3, random_state=random.randint(1, 1e7), 
+                test_size=0.1, random_state=230, 
                 upset_photo=True, verbose=False)
 
-    train(model_selection='./data/yolov8s-worldv2.pt', yaml_data="./data/data.yaml",
-     yolo_world=True, val=True, epochs=350, batch=20, seed_change=True,
-     imgsz=640, patience=100, resume=False)
+    train(model_selection='./best.pt', yaml_data="./data/data.yaml",
+     yolo_world=False, val=True, epochs=250, batch=84, seed_change=False,
+     imgsz=320, patience=100, resume=False, lr=0.0007, optimizer="AdamW")
+    
+    # , lr=0.0007, optimizer="SGD"
