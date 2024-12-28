@@ -3,12 +3,9 @@ from enum import Enum
 from pathlib import Path
 from tqdm.auto import tqdm
 from collections import defaultdict
-from warnings import filterwarnings
 import os, cv2, json, shutil, random
 from ultralytics import YOLO, YOLOWorld
 from ultralytics.data.converter import convert_coco
-
-filterwarnings("ignore")
 
 def coco_to_txt(annotations_path: str, save_dir: str, use_segments=True) -> None:
     """
@@ -82,7 +79,26 @@ def coco_txt_BaiDu(annotations_path: str, save_dir: str) -> None:
                         t.write("%g " % i)
                     t.write("\n")
 
-def spilt_tran_test(li_path: str, train_img_path: str, test_img_path: str,
+def copy_files(src_files: list, dest_dir: str, verbose: bool = True) -> None:
+    """
+    将文件从源路径复制到目标目录。
+
+    参数:
+    - src_files (list): 源文件路径列表。
+    - dest_dir (str): 目标目录路径。
+    - verbose (bool): 是否输出详细信息，默认为True。
+    """
+    for file in tqdm(src_files):
+        dest_path = os.path.join(dest_dir, os.path.basename(file))
+        if os.path.exists(dest_path):
+            if verbose:
+                print(f"{file} 已存在", end='\r')
+        else:
+            shutil.copy2(file, dest_dir)
+            if verbose:
+                print(f"{file} 已复制至 {dest_dir}")
+
+def spilt_train_test(li_path: str, train_img_path: str, test_img_path: str,
                      train_label_path: str, test_label_path: str, test_size: float = 0.2,
                     random_state: int = 110, upset_photo: bool = False, verbose=True):
     """
@@ -129,37 +145,19 @@ def spilt_tran_test(li_path: str, train_img_path: str, test_img_path: str,
         print('已删除所有训练文件.')
 
     print('执行复制操作'.center(80,'-'))
-    for img in tqdm(train_img):
-        if os.path.exists(os.path.join(train_img_path, os.path.basename(img))):
-            if verbose: print(img, '\r已存在', end='')
-        else:
-            shutil.copy2(img, train_img_path)
-            if verbose: print(img, '已复制至', train_img_path)
+    
+    copy_files(train_img, train_img_path, verbose)
     print("训练图片复制完毕")
-    for img in tqdm(test_img):
-        if os.path.exists(os.path.join(test_img_path, os.path.basename(img))):
-            if verbose: print(img, '\r已存在', test_img_path, end='')
-        else:
-            shutil.copy2(img, test_img_path)
-            if verbose: print(img, '已复制至', test_img_path)
     
+    copy_files(test_img, test_img_path, verbose)
     print("测试图片复制完毕")
-    for label in tqdm(train_label):
-        if os.path.exists(os.path.join(train_label_path, os.path.basename(label))):
-            if verbose: print(label, '\r已存在', train_label_path, end='')
-        else:
-            shutil.copy2(label, train_label_path)
-            if verbose: print(label, '已复制至', train_label_path)
     
+    copy_files(train_label, train_label_path, verbose)
     print("训练标签复制完毕")
-    for label in tqdm(test_label):
-        if os.path.exists(os.path.join(test_label_path, os.path.basename(label))):
-            if verbose: print(label, '\r已存在', test_label_path, end='')
-        else:
-            shutil.copy2(label, test_label_path)
-            if verbose: print(label, '已复制至', test_label_path)
     
+    copy_files(test_label, test_label_path, verbose)
     print("测试标签复制完毕")
+    
     print()
     print('执行完毕'.center(80,'-'))
 
@@ -296,14 +294,14 @@ if __name__ == '__main__':
     # 示例调用：
     # predict(r"runs\exp1\train\weights\best.pt", img_path=r"data\images\train\P3_No009.jpg", conf=0.7, verbose=False, stream=False, save=True)
     # coco_to_txt(annotations_path="data/annotations", save_dir="data/new_label", use_segments=True)
-    spilt_tran_test("./meta700/",
-                 "data/train/images/", "data/val/images/",
-                "data/train/labels/", "data/val/labels/",
-                test_size=0.2, random_state=230, 
-                upset_photo=True, verbose=False)
+    # spilt_train_test("./meta700/",
+    #              "data/train/images/", "data/val/images/",
+    #             "data/train/labels/", "data/val/labels/",
+    #             test_size=0.1, random_state=230, 
+    #             upset_photo=True, verbose=False)
 
     train(model_selection='./yolo11n.pt', yaml_data="./data/data.yaml",
-     yolo_world=False, val=True, epochs=300, batch=84, seed_change=False,
-     imgsz=320, patience=100, resume=False, single_cls=True, lr=0.001, optimizer="SGD")
+     yolo_world=False, val=True, epochs=200, batch=84, seed_change=False,
+     imgsz=320, resume=False, single_cls=True, lr=0.002, optimizer="SGD")
     
     # , lr=0.0007, optimizer="SGD"
