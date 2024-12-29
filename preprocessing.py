@@ -15,16 +15,10 @@ def coco_to_txt(annotations_path: str, save_dir: str, use_segments=True) -> None
     """
     将COCO格式的标注文件转换为YOLO格式的txt文件。
 
-    百度智能控制台导出的COCO格式可能转换成功，若转换失败请使用coco_txt_BaiDu
-
     参数:
     - annotations_path (str): COCO格式的标注文件路径。
     - save_dir (str): 保存转换后的txt文件的目录。
     - use_segments (bool): 是否使用多边形分割，默认为True。
-
-    功能:
-    1. 如果目标目录已存在，则删除并重新创建。
-    2. 使用`convert_coco`函数进行转换，并打印转换完成信息。
     """
     if os.path.exists(save_dir):
         shutil.rmtree(save_dir)
@@ -35,17 +29,10 @@ def coco_to_txt(annotations_path: str, save_dir: str, use_segments=True) -> None
 def coco_txt_BaiDu(annotations_path: str, save_dir: str) -> None:
     """
     将COCO格式的JSON标注文件转换为YOLO格式的txt文件（百度版本）。
-    
-    该COCO格式由百度智能控制台导出所得，若coco_to_txt无法正常工作，请使用本函数。
 
     参数:
     - annotations_path (str): COCO格式的标注文件路径。
     - save_dir (str): 保存转换后的txt文件的目录。
-
-    功能:
-    1. 如果目标目录已存在，则删除并重新创建。
-    2. 遍历每个JSON文件，解析图像和标注信息。
-    3. 将边界框坐标转换为YOLO格式，并写入对应的txt文件。
     """
     if os.path.exists(save_dir):
         shutil.rmtree(save_dir)
@@ -67,7 +54,6 @@ def coco_txt_BaiDu(annotations_path: str, save_dir: str) -> None:
             for ann in anns:
                 if ann.get("iscrowd", False):
                     continue
-                # COCO box format is [top left x, top left y, width, height]
                 box = np.array(ann["bbox"], dtype=np.float64)
                 box[:2] += box[2:] / 2  # Convert to center coordinates
                 box[[0, 2]] /= w  # Normalize x coordinates
@@ -87,7 +73,7 @@ def coco_txt_BaiDu(annotations_path: str, save_dir: str) -> None:
 def voc_to_txt(annotations_path: str, save_dir: str, obj_dict: dict=None) -> None:
     """
     将VOC格式的注释文件转换为YOLO格式的.txt文件。
-    
+
     参数:
     - annotations_path(str): 注释文件所在的路径。
     - save_dir(str): 转换后的.txt文件保存目录。
@@ -95,7 +81,6 @@ def voc_to_txt(annotations_path: str, save_dir: str, obj_dict: dict=None) -> Non
     """
     assert save_dir.endswith('/') , 'save_dir 必须以 / 结尾'
     assert obj_dict is not None, '请输入对象名称与类别编号的字典'
-
 
     if os.path.exists(save_dir):
         shutil.rmtree(save_dir)
@@ -138,7 +123,6 @@ def rm_icc_profile(src_path: str) -> None:
     从指定路径中的所有PNG图像文件中移除ICC色彩配置文件。
 
     参数: src_path (str): 包含PNG图像文件的目录路径。
-
     """
     src_path = [str(x) for x in Path(src_path).glob('*.png')]
     for path in tqdm(src_path):
@@ -168,7 +152,8 @@ def copy_files(src_files: list, dest_dir: str, verbose: bool = True) -> None:
 
 def spilt_train_test(li_path: str, train_img_path: str, test_img_path: str,
                      train_label_path: str, test_label_path: str, test_size: float = None,
-                     random_state: int = 110, upset_photo: bool = False, verbose=True):
+                     random_state: int = 110, upset_photo: bool = False, verbose=True, 
+                     negative_path: str = None):
     """
     将数据集划分为训练集和测试集，并将图片和标签复制到指定目录。
 
@@ -182,11 +167,7 @@ def spilt_train_test(li_path: str, train_img_path: str, test_img_path: str,
     - random_state (int): 随机种子，默认为110。
     - upset_photo (bool): 是否重置训练文件，默认为False。
     - verbose (bool): 是否输出详细信息，默认为True。
-
-    功能:
-    1. 根据随机种子划分图片和标签为训练集和测试集。
-    2. 如果`upset_photo`为True，则删除已有训练文件。
-    3. 将训练集和测试集的图片和标签分别复制到指定目录。
+    - negative_path (str): 负样本图片路径，默认为None。
     """
     path = Path(li_path)
     random.seed(random_state)
@@ -201,6 +182,8 @@ def spilt_train_test(li_path: str, train_img_path: str, test_img_path: str,
     test_label = [x for x in label_path if any(x[:-4] + ext in test_img for ext in ['.jpg', '.png', '.jpeg'])]
     
     train_img = [x for x in img_path if x not in test_img]
+    if negative_path is not None:
+        train_img += random.sample([str(x) for x in Path(negative_path).glob('*.jpg')], int(len(train_img) * .1))
     train_label = [x for x in label_path if x not in test_label]
     
     if upset_photo:
@@ -254,16 +237,11 @@ def train(model_selection: str, yaml_data: str, yolo_world: bool=False, epochs: 
     - seed_change (bool): 是否随机生成种子，默认为False。
     - cls (float): 分类损失权重，默认为0.5。
     - imgsz (int): 图片尺寸，默认为640。
-    - optimizer (str): 优化器类型，默认为"auto"。
+    - optimizer (str): 优化器类型，默认为"SGD"。
     - patience (int): 早停耐心值，默认为100。
     - resume (bool): 是否恢复训练，默认为False。
     - plots (bool): 是否绘制训练曲线，默认为True。
     - cos_lr (bool): 是否使用余弦退火学习率，默认为True。
-
-    功能:
-    1. 设置随机种子（如果需要）。
-    2. 加载YOLO/YOLOWORLD模型并开始训练。
-    3. 打印使用的随机种子。
     """
     seed = random.randint(1, 1e9) if seed_change else 1
     if yolo_world: model = YOLOWorld(model_selection)
@@ -284,11 +262,6 @@ def eval(model_selection: str, yaml_data: str, yolo_world=False) -> None:
     - model_selection (str): 模型选择，用于创建YOLO模型实例。
     - yaml_data (str): 包含数据集的YAML文件路径，或数据集内容的YAML格式。
     - yolo_world (bool): 是否使用YOLOWorld模型，默认为False。
-
-    功能:
-    1. 根据模型选择创建YOLO/YOLOWORLD模型实例。
-    2. 使用提供的数据集（YAML格式）评估模型。
-    3. 打印评估完成信息。
     """
     if yolo_world: YOLOWorld(model_selection).val(data=yaml_data)
     else: YOLO(model_selection).val(data=yaml_data)
@@ -319,15 +292,12 @@ def get_infer_data(path_dir: str, typing: InferDataType = InferDataType.IMAGE, m
     - 如果 `typing` 为 `InferDataType.IMAGE`，则返回最多 `max_num` 个随机图像文件路径的列表。
     - 如果 `typing` 为 `InferDataType.DIR`，则返回目录中所有图像文件路径的列表。
     """
-    # 获取指定目录下的所有符合条件的图像文件路径
     imgs = [str(x) for x in Path(path_dir).glob('*.*') if "jpg" in str(x) or "png" in str(x) or "jpeg" in str(x)]
 
     if typing == InferDataType.IMAGE:
-        # 对于图像类型，随机抽取最多 max_num 个图像文件路径
         return random.sample(list(imgs), min(max_num, len(imgs)))
 
     elif typing == InferDataType.DIR:
-        # 对于目录类型，返回所有图像文件路径
         return imgs
 
 def predict(model_selection: str, img_path: str, yolo_world=False, conf: float = 0.8, save: bool = False,
@@ -344,10 +314,6 @@ def predict(model_selection: str, img_path: str, yolo_world=False, conf: float =
     - show (bool): 是否显示结果，默认为True。
     - verbose (bool): 是否输出详细信息，默认为True。
     - stream (bool): 是否流式处理，默认为False。
-
-    功能:
-    1. 加载YOLO/YOLOWORLD模型并进行推理。
-    2. 显示或保存推理结果。
     """
     if yolo_world: model = YOLOWorld(model_selection)
     else: model = YOLO(model_selection)
@@ -358,20 +324,17 @@ def predict(model_selection: str, img_path: str, yolo_world=False, conf: float =
     
 
 if __name__ == '__main__':
-    """
-    主程序入口，用于调用训练、预测或数据预处理函数。
-    """
+    
     # 示例调用：
     # predict(r"runs\exp1\train\weights\best.pt", img_path=r"data\images\train\P3_No009.jpg", conf=0.7, verbose=False, stream=False, save=True)
     # coco_to_txt(annotations_path="data/annotations", save_dir="data/new_label", use_segments=True)
-    spilt_train_test("./meta700/",
+    spilt_train_test("./meta3000/",
                  "data/train/images/", "data/val/images/",
                 "data/train/labels/", "data/val/labels/",
-                test_size=None, random_state=random.randint(1, 1e9), 
-                upset_photo=True, verbose=False)
+                negative_path='./Negative/', test_size=None,
+                random_state=110, upset_photo=True, verbose=False)
 
-    train(model_selection='./best.pt', yaml_data="./data/data.yaml",
-     yolo_world=False, val=True, epochs=200, batch=84, seed_change=False,
-     imgsz=320, resume=False, single_cls=True, lr=0.0007, optimizer="SGD")
+    train(model_selection='./yolo11n.pt', yaml_data="./data/data.yaml",
+     yolo_world=False, val=True, epochs=250, batch=96, seed_change=False,
+     imgsz=320, resume=False, single_cls=True, optimizer="SGD", patience=80)
     
-    # , lr=0.0007, optimizer="SGD"
