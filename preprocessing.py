@@ -131,6 +131,32 @@ def rm_icc_profile(src_path: str) -> None:
     
     logging.info('icc_profile 已删除')
 
+def normalize_labels(src_path: str) -> None:
+    """
+    标准化标签文件中的标签值，确保所有值不超过1.0。
+    
+    参数:
+    - src_path (str): 包含标签文件的源路径。
+    """
+
+    src_path = [str(x) for x in Path(src_path).glob('*.txt')]
+    for path in tqdm(src_path):
+        f =  open(path, "r")
+        texts = f.readlines()
+        f.close()
+        with open(path, "+w") as t:
+            for text in texts:
+                text = text.split()
+                for tt in text[1: ]:
+                    if float(tt) > 1.0:
+                        text[text.index(tt)] = '1.0'
+                t.write(text[0] + " ")
+                for tt in text[1: ]:
+                    t.write("%g " % float(tt))
+                t.write("\n")
+    
+    logging.info('Label files normalized over...')
+
 def copy_files(src_files: list, dest_dir: str, verbose: bool = True) -> None:
     """
     将文件从源路径复制到目标目录。
@@ -183,7 +209,8 @@ def spilt_train_test(li_path: str, train_img_path: str, test_img_path: str,
     
     train_img = [x for x in img_path if x not in test_img]
     if negative_path is not None:
-        train_img += random.sample([str(x) for x in Path(negative_path).glob('*.jpg')], int(len(train_img) * .1))
+
+        train_img += random.sample([str(x) for x in Path(negative_path).glob('*.jpg')], min(500, int(len(train_img) * .1)))
     train_label = [x for x in label_path if x not in test_label]
     
     if upset_photo:
@@ -334,7 +361,6 @@ if __name__ == '__main__':
                 negative_path='./Negative/', test_size=None,
                 random_state=110, upset_photo=True, verbose=False)
 
-    train(model_selection='./yolo11n.pt', yaml_data="./data/data.yaml",
-     yolo_world=False, val=True, epochs=250, batch=96, seed_change=False,
+    train(model_selection='./best.pt', yaml_data="./data/data.yaml",
+     yolo_world=False, val=True, epochs=200, batch=96, seed_change=False,
      imgsz=320, resume=False, single_cls=True, optimizer="SGD", patience=80)
-    
