@@ -158,6 +158,39 @@ def normalize_labels(src_path: str) -> None:
     
     logging.info('Label files normalized over...')
 
+def check_images_labels(img_path: str, label_path: str=None, meta_path: str=None) -> None:
+    """
+    检查图像文件和标签文件的对应关系，并可选地检查元数据文件。
+    
+    参数:
+    img_path (str): 图像文件夹路径。
+    label_path (str): 标签文件夹路径。
+    meta_path (str, 可选): 元数据文件夹路径，默认为None。
+    """
+
+    imgs_name = [str(x).split('/')[-1].split('.')[0] for x in Path(img_path).glob("*.*") if str(x).endswith((".jpg", ".png", "jpeg"))]
+
+    if label_path is not None:
+        labels_name = [str(x).split('/')[-1].split('.')[0] for x in Path(label_path).glob("*.txt")]
+        target = "imgs" if len(imgs_name) >= len(labels_name) else "labels"
+        if target == "imgs":
+            for name in tqdm(imgs_name):
+                if name not in labels_name:
+                    print(f"{name} not in labels")
+        else:
+            for name in tqdm(labels_name):
+                if name not in imgs_name:
+                    print(f"{name} not in imgs")
+    else:
+        logging.warning("labels_name is None")
+    if meta_path is not None:
+        meta_name = [str(x).split('/')[-1].split('.')[0] for x in Path(meta_path).glob("*.*") if str(x).endswith((".jpg", ".png", "jpeg"))]
+        for name in tqdm(meta_name):
+            if name not in imgs_name:
+                print(f"{name} not in imgs")
+
+    logging.info('检查完成...')
+
 def copy_files(src_files: Union[list, str], dest_dir: str, verbose: bool = True, max_num:int=None) -> None:
     """
     将文件从源路径复制到目标目录。
@@ -193,12 +226,10 @@ def copy_files(src_files: Union[list, str], dest_dir: str, verbose: bool = True,
             if verbose:
                 logging.info(f"{file} 已复制至 {dest_dir}")
 
-    logging.info("复制操作结束...")
-
 def spilt_train_test(li_path: str, train_img_path: str, test_img_path: str,
-                     train_label_path: str, test_label_path: str, test_size: float = None,
-                     random_state: int = 110, upset_photo: bool = False, verbose=True, 
-                     negative_path: str = None):
+                     train_label_path: str, test_label_path: str, negative_path: str = None,
+                     test_size: Union[int, float] = .2, random_state: int = 110,
+                     upset_photo: bool = False, verbose=True):
     """
     将数据集划分为训练集和测试集，并将图片和标签复制到指定目录。
 
@@ -220,16 +251,16 @@ def spilt_train_test(li_path: str, train_img_path: str, test_img_path: str,
     img_path = [str(x) for x in list(path.glob('*.jpg')) + list(path.glob('*.png')) + list(path.glob('*.jpeg'))]
     label_path = [str(x) for x in list(path.glob('*.txt')) if "class" not in str(x)]
     
-    if test_size is not None:
+    if isinstance(test_size, float):
         test_img = random.sample(img_path, int(len(img_path) * test_size))
     else:
-        test_img = random.sample(img_path, 100)
+        test_img = random.sample(img_path, test_size)
     test_label = [x for x in label_path if any(x[:-4] + ext in test_img for ext in ['.jpg', '.png', '.jpeg'])]
     
     train_img = [x for x in img_path if x not in test_img]
     if negative_path is not None:
-
-        train_img += random.sample([str(x) for x in Path(negative_path).glob('*.jpg')], min(500, int(len(train_img) * .1)))
+        train_img += random.sample([str(x) for x in Path(negative_path).glob('*.jpg')], min(1000, int(len(train_img) * .1)))
+    
     train_label = [x for x in label_path if x not in test_label]
     
     if upset_photo:
@@ -244,8 +275,6 @@ def spilt_train_test(li_path: str, train_img_path: str, test_img_path: str,
             os.unlink(str(file))
         logging.info('已删除所有训练文件.')
 
-    logging.info('执行复制操作')
-    
     copy_files(train_img, train_img_path, verbose)
     logging.info("训练图片复制完毕")
     
@@ -387,10 +416,10 @@ def export_model(model_selection: str, yolo_world: bool=False, format: str="onnx
 
 if __name__ == '__main__':
     
-    spilt_train_test("./meta7500/",
+    spilt_train_test("./meta9000/",
                  "data/train/images/", "data/val/images/",
                 "data/train/labels/", "data/val/labels/",
-                negative_path='./Negative/', test_size=None,
+                negative_path='./Negative/', test_size=.2,
                 random_state=110, upset_photo=True, verbose=False)
 
     train(model_selection='./yolo11n.pt', yaml_data="./data/data.yaml",
