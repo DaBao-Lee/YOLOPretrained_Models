@@ -2,6 +2,7 @@ import numpy as np
 from PIL import Image
 from enum import Enum
 from lxml import etree
+from typing import Union
 from pathlib import Path
 from tqdm.auto import tqdm
 from collections import defaultdict
@@ -157,24 +158,42 @@ def normalize_labels(src_path: str) -> None:
     
     logging.info('Label files normalized over...')
 
-def copy_files(src_files: list, dest_dir: str, verbose: bool = True) -> None:
+def copy_files(src_files: Union[list, str], dest_dir: str, verbose: bool = True, max_num:int=None) -> None:
     """
     将文件从源路径复制到目标目录。
 
     参数:
-    - src_files (list): 源文件路径列表。
+    - src_files (list|str): 源文件路径列表。
     - dest_dir (str): 目标目录路径。
     - verbose (bool): 是否输出详细信息，默认为True。
+    - max_num (int): 随机选择指定数量的目标文件进行复制，默认为None。
     """
+    if isinstance(src_files, str):
+        if src_files.startswith('.'): logging.warning("src_files以 . 开头可能会导致错误发生!!!")
+        src_files = [str(x) for x in Path(src_files).glob('*.*')]
+        if len(src_files) == 0: 
+            logging.warning("src_files为空, 请检查路径是否正确或者去掉源文件路径的.开头")
+            return
+
+    if max_num is not None:
+        src_files = random.sample(src_files, min(max_num, len(src_files)))
+        logging.info(f'确定将{max_num}个目标文件复制到{dest_dir}?[y/n]')
+        y_n = input()
+        if y_n.lower() != 'y': 
+            logging.info("取消复制操作")
+            return 
+
     for file in tqdm(src_files):
         dest_path = os.path.join(dest_dir, os.path.basename(file))
         if os.path.exists(dest_path):
             if verbose:
-                logging.info(f"{file} 已存在", end='\r')
+                logging.info(f"{file} 已存在")
         else:
             shutil.copy2(file, dest_dir)
             if verbose:
                 logging.info(f"{file} 已复制至 {dest_dir}")
+
+    logging.info("复制操作结束...")
 
 def spilt_train_test(li_path: str, train_img_path: str, test_img_path: str,
                      train_label_path: str, test_label_path: str, test_size: float = None,
@@ -368,9 +387,6 @@ def export_model(model_selection: str, yolo_world: bool=False, format: str="onnx
 
 if __name__ == '__main__':
     
-    # 示例调用：
-    # predict(r"runs\exp1\train\weights\best.pt", img_path=r"data\images\train\P3_No009.jpg", conf=0.7, verbose=False, stream=False, save=True)
-    # coco_to_txt(annotations_path="data/annotations", save_dir="data/new_label", use_segments=True)
     spilt_train_test("./meta7500/",
                  "data/train/images/", "data/val/images/",
                 "data/train/labels/", "data/val/labels/",
