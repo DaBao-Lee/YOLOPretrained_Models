@@ -349,18 +349,34 @@ def predict(model_selection: str, img_path: str, yolo_world=False, conf: float =
     cv2.waitKey(0)
     cv2.destroyAllWindows()
     
+def export_model(model_selection: str, yolo_world: bool=False, format: str="onnx"):
+    """
+    根据模型选择和是否为YOLOWorld模型来创建相应的模型实例，并将其导出为指定的格式。
+
+    参数:
+    - model_selection (str): 模型选择字符串，用于指定所需的模型类型。
+    - yolo_world (bool): 默认为False。指示是否使用YOLOWorld模型的布尔值。
+    - format (str): 默认为"onnx"。
+    """
+    if yolo_world: model = YOLOWorld(model_selection)
+    else: model = YOLO(model_selection)
+
+    model.export(format=format)
+
+    logging.info("Model exported successfully.")
+
 
 if __name__ == '__main__':
     
     # 示例调用：
     # predict(r"runs\exp1\train\weights\best.pt", img_path=r"data\images\train\P3_No009.jpg", conf=0.7, verbose=False, stream=False, save=True)
     # coco_to_txt(annotations_path="data/annotations", save_dir="data/new_label", use_segments=True)
-    spilt_train_test("./meta3000/",
+    spilt_train_test("./meta7500/",
                  "data/train/images/", "data/val/images/",
                 "data/train/labels/", "data/val/labels/",
                 negative_path='./Negative/', test_size=None,
                 random_state=110, upset_photo=True, verbose=False)
 
-    train(model_selection='./best.pt', yaml_data="./data/data.yaml",
-     yolo_world=False, val=True, epochs=200, batch=96, seed_change=False,
+    train(model_selection='./yolo11n.pt', yaml_data="./data/data.yaml",
+     yolo_world=False, val=True, epochs=250, batch=96, seed_change=False,
      imgsz=320, resume=False, single_cls=True, optimizer="SGD", patience=80)
