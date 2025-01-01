@@ -1,3 +1,32 @@
+"""
+
+本模块提供了一系列函数，用于处理数据转换、文件操作和模型训练等任务
+---
+- 将不同格式的标注文件转换为YOLO格式的txt文件
+- 移除图像文件中的ICC色彩配置文件
+- 标准化标签文件中的标签值
+- 检查并复制缺失的文件
+- 划分数据集
+- 训练和评估YOLO/YOLOWORLD模型
+- 导出模型
+
+函数:
+---
+- coco_to_txt(annotations_path: str, save_dir: str, use_segments=True) -> None:
+- coco_txt_BaiDu(annotations_path: str, save_dir: str) -> None:
+- voc_to_txt(annotations_path: str, save_dir: str, obj_dict: dict=None) -> None:
+- rm_icc_profile(src_path: str) -> None:
+- normalize_labels(src_path: str) -> None:
+- check_and_copy_missing_files(img_path: str, label_path: str = None,
+- copy_files(src_files: Union[list, str], dest_dir: str, verbose: bool = True, max_num:int=None) -> None:
+- spilt_train_test(li_path: str, train_img_path: str, test_img_path: str,
+- train(model_selection: str, yaml_data: str, yolo_world: bool=False, epochs: int = 100, batch: int = -1, val: bool = True,
+- eval(model_selection: str, yaml_data: str, yolo_world=False) -> None:
+- get_best_last_model(model_path: str = "./runs/detect/train/weights", index: int = None, mode: int = 0) -> str:
+- get_infer_data(path_dir: str, typing: InferDataType = InferDataType.IMAGE, max_num: int = 5):
+- predict(model_selection: str, img_path: str, yolo_world=False, conf: float = 0.8, save: bool = False,
+- export_model(model_selection: str, yolo_world: bool=False, format: str="onnx"):
+"""
 import numpy as np
 from PIL import Image
 from enum import Enum
@@ -382,7 +411,7 @@ def get_best_last_model(model_path: str = "./runs/detect/train/weights", index: 
     返回:
     - str: 选定模型的路径。
     """
-    
+
     if index is not None:
         model_path = f"./runs/detect/train{index}/weights"
 
