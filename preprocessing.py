@@ -3,11 +3,10 @@ from PIL import Image
 from enum import Enum
 from lxml import etree
 from typing import Union
-from pathlib import Path
 from tqdm.auto import tqdm
 from collections import defaultdict
 from ultralytics import YOLO, YOLOWorld
-import os, cv2, json, shutil, random, logging
+import os, cv2, json, shutil, random, logging, glob
 from ultralytics.data.converter import convert_coco
 
 logging.basicConfig(level=logging.INFO)
@@ -21,11 +20,13 @@ def coco_to_txt(annotations_path: str, save_dir: str, use_segments=True) -> None
     - save_dir (str): 保存转换后的txt文件的目录。
     - use_segments (bool): 是否使用多边形分割，默认为True。
     """
+
     if os.path.exists(save_dir):
         shutil.rmtree(save_dir)
         
     convert_coco(annotations_path, save_dir=save_dir, use_segments=use_segments, lvis=False, cls91to80=True)
     logging.info('转换完成')
+
 
 def coco_txt_BaiDu(annotations_path: str, save_dir: str) -> None:
     """
@@ -56,9 +57,9 @@ def coco_txt_BaiDu(annotations_path: str, save_dir: str) -> None:
                 if ann.get("iscrowd", False):
                     continue
                 box = np.array(ann["bbox"], dtype=np.float64)
-                box[:2] += box[2:] / 2  # Convert to center coordinates
-                box[[0, 2]] /= w  # Normalize x coordinates
-                box[[1, 3]] /= h  # Normalize y coordinates
+                box[:2] += box[2:] / 2
+                box[[0, 2]] /= w
+                box[[1, 3]] /= h
                 if box[2] <= 0 or box[3] <= 0:  
                     continue
                 cls = ann["category_id"]
@@ -71,6 +72,7 @@ def coco_txt_BaiDu(annotations_path: str, save_dir: str) -> None:
                     t.write("\n")
     logging.info('转换完成')
 
+
 def voc_to_txt(annotations_path: str, save_dir: str, obj_dict: dict=None) -> None:
     """
     将VOC格式的注释文件转换为YOLO格式的.txt文件。
@@ -80,6 +82,7 @@ def voc_to_txt(annotations_path: str, save_dir: str, obj_dict: dict=None) -> Non
     - save_dir(str): 转换后的.txt文件保存目录。
     - obj_dict(dict): 包含对象名称与类别编号的字典 e.g {"wheel": 0, "handle": 1, "base": 2}
     """
+
     assert save_dir.endswith('/') , 'save_dir 必须以 / 结尾'
     assert obj_dict is not None, '请输入对象名称与类别编号的字典'
 
@@ -87,13 +90,11 @@ def voc_to_txt(annotations_path: str, save_dir: str, obj_dict: dict=None) -> Non
         shutil.rmtree(save_dir)
     os.mkdir(save_dir)
     
-    xmls = [str(x) for x in Path(annotations_path).glob('*.xml')]
+    xmls = glob.glob(os.path.join(annotations_path, '*.xml'))
     for xml_name in tqdm(xmls):
-
-        txt_name = xml_name.replace('xml', 'txt').split('/')[-1]
-        f = open(save_dir + txt_name, '+w')   # 代开待写入的txt文件
+        txt_name = os.path.basename(xml_name).replace('xml', 'txt')
+        f = open(os.path.join(save_dir, txt_name), '+w')
         with open(xml_name, 'rb') as fp:
-            
             xml = etree.HTML(fp.read())
             width = int(xml.xpath('//size/width/text()')[0])
             height = int(xml.xpath('//size/height/text()')[0])
@@ -119,18 +120,21 @@ def voc_to_txt(annotations_path: str, save_dir: str, obj_dict: dict=None) -> Non
             f.close()
     logging.info('转换完成')
 
+
 def rm_icc_profile(src_path: str) -> None:
     """
     从指定路径中的所有PNG图像文件中移除ICC色彩配置文件。
 
     参数: src_path (str): 包含PNG图像文件的目录路径。
     """
-    src_path = [str(x) for x in Path(src_path).glob('*.png')]
+
+    src_path = glob.glob(os.path.join(src_path, '*.png'))
     for path in tqdm(src_path):
         img = Image.open(path)
         img.save(path, format="PNG", icc_profile=None)
     
     logging.info('icc_profile 已删除')
+
 
 def normalize_labels(src_path: str) -> None:
     """
@@ -140,25 +144,27 @@ def normalize_labels(src_path: str) -> None:
     - src_path (str): 包含标签文件的源路径。
     """
 
-    src_path = [str(x) for x in Path(src_path).glob('*.txt')]
+    src_path = glob.glob(os.path.join(src_path, '*.txt'))
     for path in tqdm(src_path):
-        f =  open(path, "r")
+        f = open(path, "r")
         texts = f.readlines()
         f.close()
         with open(path, "+w") as t:
             for text in texts:
                 text = text.split()
-                for tt in text[1: ]:
+                for tt in text[1:]:
                     if float(tt) > 1.0:
                         text[text.index(tt)] = '1.0'
                 t.write(text[0] + " ")
-                for tt in text[1: ]:
+                for tt in text[1:]:
                     t.write("%g " % float(tt))
                 t.write("\n")
     
     logging.info('Label files normalized over...')
 
-def check_images_labels(img_path: str, label_path: str=None, meta_path: str=None) -> None:
+
+def check_and_copy_missing_files(img_path: str, label_path: str = None,
+                                  meta_path: str = None, missing_dir: str = None) -> None:
     """
     检查图像文件和标签文件的对应关系，并可选地检查元数据文件。
     
@@ -167,29 +173,39 @@ def check_images_labels(img_path: str, label_path: str=None, meta_path: str=None
     label_path (str): 标签文件夹路径。
     meta_path (str, 可选): 元数据文件夹路径，默认为None。
     """
-
-    imgs_name = [str(x).split('/')[-1].split('.')[0] for x in Path(img_path).glob("*.*") if str(x).endswith((".jpg", ".png", "jpeg"))]
+    
+    imgs_name = [os.path.splitext(os.path.basename(x))[0] for x in glob.glob(os.path.join(img_path, "*.*")) if x.endswith((".jpg", ".png", "jpeg"))]
 
     if label_path is not None:
-        labels_name = [str(x).split('/')[-1].split('.')[0] for x in Path(label_path).glob("*.txt")]
-        target = "imgs" if len(imgs_name) >= len(labels_name) else "labels"
-        if target == "imgs":
+        labels_name = [os.path.splitext(os.path.basename(x))[0] for x in glob.glob(os.path.join(label_path, "*.txt"))]
+        if len(imgs_name) >= len(labels_name):
             for name in tqdm(imgs_name):
                 if name not in labels_name:
                     print(f"{name} not in labels")
+                    if missing_dir:
+                        src_img = next(glob.glob(os.path.join(img_path, f"{name}.*")))
+                        shutil.copy2(src_img, missing_dir)
         else:
             for name in tqdm(labels_name):
                 if name not in imgs_name:
                     print(f"{name} not in imgs")
+                    if missing_dir:
+                        src_label = next(glob.glob(os.path.join(label_path, f"{name}.txt")))
+                        shutil.copy2(src_label, missing_dir)
     else:
         logging.warning("labels_name is None")
+
     if meta_path is not None:
-        meta_name = [str(x).split('/')[-1].split('.')[0] for x in Path(meta_path).glob("*.*") if str(x).endswith((".jpg", ".png", "jpeg"))]
+        meta_name = [os.path.splitext(os.path.basename(x))[0] for x in glob.glob(os.path.join(meta_path, "*.*")) if x.endswith((".jpg", ".png", "jpeg"))]
         for name in tqdm(meta_name):
             if name not in imgs_name:
                 print(f"{name} not in imgs")
+                if missing_dir:
+                    src_meta = next(glob.glob(os.path.join(meta_path, f"{name}.*")))
+                    shutil.copy2(src_meta, missing_dir)
 
     logging.info('检查完成...')
+
 
 def copy_files(src_files: Union[list, str], dest_dir: str, verbose: bool = True, max_num:int=None) -> None:
     """
@@ -201,9 +217,10 @@ def copy_files(src_files: Union[list, str], dest_dir: str, verbose: bool = True,
     - verbose (bool): 是否输出详细信息，默认为True。
     - max_num (int): 随机选择指定数量的目标文件进行复制，默认为None。
     """
+
     if isinstance(src_files, str):
         if src_files.startswith('.'): logging.warning("src_files以 . 开头可能会导致错误发生!!!")
-        src_files = [str(x) for x in Path(src_files).glob('*.*')]
+        src_files = glob.glob(os.path.join(src_files, '*.*'))
         if len(src_files) == 0: 
             logging.warning("src_files为空, 请检查路径是否正确或者去掉源文件路径的.开头")
             return
@@ -226,6 +243,7 @@ def copy_files(src_files: Union[list, str], dest_dir: str, verbose: bool = True,
             if verbose:
                 logging.info(f"{file} 已复制至 {dest_dir}")
 
+
 def spilt_train_test(li_path: str, train_img_path: str, test_img_path: str,
                      train_label_path: str, test_label_path: str, negative_path: str = None,
                      test_size: Union[int, float] = .2, random_state: int = 110,
@@ -245,11 +263,12 @@ def spilt_train_test(li_path: str, train_img_path: str, test_img_path: str,
     - verbose (bool): 是否输出详细信息，默认为True。
     - negative_path (str): 负样本图片路径，默认为None。
     """
-    path = Path(li_path)
+
+    path = li_path
     random.seed(random_state)
     
-    img_path = [str(x) for x in list(path.glob('*.jpg')) + list(path.glob('*.png')) + list(path.glob('*.jpeg'))]
-    label_path = [str(x) for x in list(path.glob('*.txt')) if "class" not in str(x)]
+    img_path = glob.glob(os.path.join(path, '*.jpg')) + glob.glob(os.path.join(path, '*.png')) + glob.glob(os.path.join(path, '*.jpeg'))
+    label_path = [x for x in glob.glob(os.path.join(path, '*.txt')) if "class" not in x]
     
     if isinstance(test_size, float):
         test_img = random.sample(img_path, int(len(img_path) * test_size))
@@ -259,7 +278,7 @@ def spilt_train_test(li_path: str, train_img_path: str, test_img_path: str,
     
     train_img = [x for x in img_path if x not in test_img]
     if negative_path is not None:
-        train_img += random.sample([str(x) for x in Path(negative_path).glob('*.jpg')], min(1000, int(len(train_img) * .1)))
+        train_img += random.sample(glob.glob(os.path.join(negative_path, '*.jpg')), min(1000, int(len(train_img) * .1)))
     
     train_label = [x for x in label_path if x not in test_label]
     
@@ -270,9 +289,9 @@ def spilt_train_test(li_path: str, train_img_path: str, test_img_path: str,
         t_label = train_label_path
         v_label = test_label_path
         
-        tree = list(Path(t_img).glob('*.*')) + list(Path(v_img).glob('*.*')) + list(Path(t_label).glob('*.*')) + list(Path(v_label).glob('*.*'))
+        tree = glob.glob(os.path.join(t_img, '*.*')) + glob.glob(os.path.join(v_img, '*.*')) + glob.glob(os.path.join(t_label, '*.*')) + glob.glob(os.path.join(v_label, '*.*'))
         for file in tree:
-            os.unlink(str(file))
+            os.unlink(file)
         logging.info('已删除所有训练文件.')
 
     copy_files(train_img, train_img_path, verbose)
@@ -288,6 +307,7 @@ def spilt_train_test(li_path: str, train_img_path: str, test_img_path: str,
     logging.info("测试标签复制完毕")
     
     logging.info('执行完毕')
+
 
 def train(model_selection: str, yaml_data: str, yolo_world: bool=False, epochs: int = 100, batch: int = -1, val: bool = True,
            save_period: int = -1, project: str = None, pretrained: str = None, single_cls: bool = False,
@@ -318,6 +338,7 @@ def train(model_selection: str, yaml_data: str, yolo_world: bool=False, epochs: 
     - plots (bool): 是否绘制训练曲线，默认为True。
     - cos_lr (bool): 是否使用余弦退火学习率，默认为True。
     """
+    
     seed = random.randint(1, 1e9) if seed_change else 1
     if yolo_world: model = YOLOWorld(model_selection)
     else: model = YOLO(model_selection)
@@ -329,6 +350,7 @@ def train(model_selection: str, yaml_data: str, yolo_world: bool=False, epochs: 
     
     logging.info(f'Echo: In this train time, we use the seed of {seed}.')
 
+
 def eval(model_selection: str, yaml_data: str, yolo_world=False) -> None:
     """
     使用指定的模型和数据集评估模型。
@@ -338,10 +360,47 @@ def eval(model_selection: str, yaml_data: str, yolo_world=False) -> None:
     - yaml_data (str): 包含数据集的YAML文件路径，或数据集内容的YAML格式。
     - yolo_world (bool): 是否使用YOLOWorld模型，默认为False。
     """
+    
     if yolo_world: YOLOWorld(model_selection).val(data=yaml_data)
     else: YOLO(model_selection).val(data=yaml_data)
     
     logging.info("Evaluation finished.")
+
+
+def get_best_last_model(model_path: str = "./runs/detect/train/weights", index: int = None, mode: int = 0) -> str:
+    """
+    获取最佳或最后一个模型的路径。
+
+    根据提供的模型路径和模式，本函数会选择并返回最佳模型或最后一个模型的路径。
+    如果指定了索引，则会根据索引选择特定训练的模型路径。
+
+    参数:
+    - model_path (str): 模型文件所在的目录路径。默认路径为 "./runs/detect/train/weights"。
+    - index (int): 训练的索引，如果提供，则会根据索引选择特定的训练路径。默认为 None。
+    - mode (int): 选择模式。0 代表选择最佳模型，1 代表选择最后一个模型。默认为 0。
+
+    返回:
+    - str: 选定模型的路径。
+    """
+    
+    if index is not None:
+        model_path = f"./runs/detect/train{index}/weights"
+
+    models = glob.glob(os.path.join(model_path, '*.pt'))
+    assert models, f"{model_path} 未找到模型，请检查路径是否正确。"
+
+    if mode == 0:
+        path = next(x for x in models if "best" in os.path.basename(x))
+        logging.info(f"选取最佳模型: {path}")
+
+    elif mode == 1:
+        path = next(x for x in models if "last" in os.path.basename(x))
+        logging.info(f"选取最后一个模型: {path}")
+
+    logging.info("Model fetched successfully.")
+
+    return str(path)
+
 
 class InferDataType(Enum):
     """
@@ -351,8 +410,10 @@ class InferDataType(Enum):
     - IMAGE: 表示图像类型的数据。
     - DIR: 表示目录类型的数据。
     """
+
     IMAGE = "image"
     DIR = "dir"
+
 
 def get_infer_data(path_dir: str, typing: InferDataType = InferDataType.IMAGE, max_num: int = 5):
     """
@@ -367,13 +428,15 @@ def get_infer_data(path_dir: str, typing: InferDataType = InferDataType.IMAGE, m
     - 如果 `typing` 为 `InferDataType.IMAGE`，则返回最多 `max_num` 个随机图像文件路径的列表。
     - 如果 `typing` 为 `InferDataType.DIR`，则返回目录中所有图像文件路径的列表。
     """
-    imgs = [str(x) for x in Path(path_dir).glob('*.*') if "jpg" in str(x) or "png" in str(x) or "jpeg" in str(x)]
+
+    imgs = [x for x in glob.glob(os.path.join(path_dir, '*.*')) if "jpg" in x or "png" in x or "jpeg" in x]
 
     if typing == InferDataType.IMAGE:
         return random.sample(list(imgs), min(max_num, len(imgs)))
 
     elif typing == InferDataType.DIR:
         return imgs
+
 
 def predict(model_selection: str, img_path: str, yolo_world=False, conf: float = 0.8, save: bool = False,
                 show: bool = True, verbose: bool = True, stream: bool = False):
@@ -390,12 +453,14 @@ def predict(model_selection: str, img_path: str, yolo_world=False, conf: float =
     - verbose (bool): 是否输出详细信息，默认为True。
     - stream (bool): 是否流式处理，默认为False。
     """
+
     if yolo_world: model = YOLOWorld(model_selection)
     else: model = YOLO(model_selection)
     model(source=img_path, conf=conf, show=show, save=save, verbose=verbose, stream=stream)
     
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+  
     
 def export_model(model_selection: str, yolo_world: bool=False, format: str="onnx"):
     """
@@ -406,6 +471,7 @@ def export_model(model_selection: str, yolo_world: bool=False, format: str="onnx
     - yolo_world (bool): 默认为False。指示是否使用YOLOWorld模型的布尔值。
     - format (str): 默认为"onnx"。
     """
+
     if yolo_world: model = YOLOWorld(model_selection)
     else: model = YOLO(model_selection)
 
