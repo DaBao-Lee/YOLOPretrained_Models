@@ -1,6 +1,7 @@
 """
-
 本模块提供了一系列函数，用于处理数据转换、文件操作和模型训练等任务
+
+功能
 ---
 - 将不同格式的标注文件转换为YOLO格式的txt文件
 - 移除图像文件中的ICC色彩配置文件
@@ -9,32 +10,15 @@
 - 划分数据集
 - 训练和评估YOLO/YOLOWORLD模型
 - 导出模型
-
-函数:
----
-- coco_to_txt(annotations_path: str, save_dir: str, use_segments=True) -> None:
-- coco_txt_BaiDu(annotations_path: str, save_dir: str) -> None:
-- voc_to_txt(annotations_path: str, save_dir: str, obj_dict: dict=None) -> None:
-- rm_icc_profile(src_path: str) -> None:
-- normalize_labels(src_path: str) -> None:
-- check_and_copy_missing_files(img_path: str, label_path: str = None,
-- copy_files(src_files: Union[list, str], dest_dir: str, verbose: bool = True, max_num:int=None) -> None:
-- spilt_train_test(li_path: str, train_img_path: str, test_img_path: str,
-- train(model_selection: str, yaml_data: str, yolo_world: bool=False, epochs: int = 100, batch: int = -1, val: bool = True,
-- eval(model_selection: str, yaml_data: str, yolo_world=False) -> None:
-- get_best_last_model(model_path: str = "./runs/detect/train/weights", index: int = None, mode: int = 0) -> str:
-- get_infer_data(path_dir: str, typing: InferDataType = InferDataType.IMAGE, max_num: int = 5):
-- predict(model_selection: str, img_path: str, yolo_world=False, conf: float = 0.8, save: bool = False,
-- export_model(model_selection: str, yolo_world: bool=False, format: str="onnx"):
 """
 import numpy as np
-from PIL import Image
 from enum import Enum
 from lxml import etree
 from typing import Union
 from tqdm.auto import tqdm
 from collections import defaultdict
 from ultralytics import YOLO, YOLOWorld
+from PIL import Image, ImageDraw, ImageFont
 import os, cv2, json, shutil, random, logging, glob
 from ultralytics.data.converter import convert_coco
 
@@ -254,11 +238,77 @@ def rm_files(src_files: str, target_file: str) -> None:
     if target_txt in files:
         os.remove(target_txt)
         logging.info(f"{target_txt} 已删除")
+    else: logging.warning(f"{target_txt} 不存在")
 
     for img in target_img:
         if img in files:
             os.remove(img)
             logging.info(f"{img} 已删除")
+
+def split_meta(meta_path: str, split_name: str="meta", split_num: int=5):
+    """
+    根据给定的路径分割元数据。
+
+    该函数会将指定路径下的图片和标签文件分割成若干部分，每部分包含大致相等数量的图片和标签。
+    
+    参数:
+    - meta_path: 包含图片和标签文件的路径。
+    - split_name: 分割后的文件夹名称前缀。
+    - split_num: 分割的数量。
+    """
+    
+    imgs = []
+    for ext in ["jpg", "png", "jpeg"]:
+        imgs.extend(glob.glob(meta_path.rstrip('/') + f"/*.{ext}"))
+    labels = glob.glob(meta_path.rstrip('/') + "/*.txt")
+    
+    if len(imgs) != len(labels): 
+        logging.error("imgs and labels not match")
+        return 
+
+    length = len(imgs) // split_num + 1
+    if os.path.exists('./meta_split_results'):
+        shutil.rmtree('./meta_split_results')
+    os.mkdir('./meta_split_results')
+    for i in range(split_num):
+        os.mkdir(f'./meta_split_results/{split_name}{i}')
+        for index in range(i*length, length * (i + 1)):
+            try:
+                shutil.copy2(imgs[index], f'./meta_split_results/{split_name}{i}')
+                shutil.copy2(labels[index], f'./meta_split_results/{split_name}{i}')
+            except: pass
+
+    logging.info("split done...")
+
+def collcet_meta(meta_split_path: str="./meta_split_results", save: bool=False) -> list:
+    """
+    该函数会查找并收集指定目录中所有子目录下的元数据文件路径。
+    如果指定的目录不存在，则记录错误信息并返回。
+
+    参数:
+    - meta_split_path (str): 包含分割结果的目录路径，默认为"./meta_split_results"。
+    - save (bool): 是否保存收集到的元数据文件，默认为False。
+
+    返回:
+    list: 包含所有收集到的元数据文件路径的列表。
+    """
+    if not os.path.exists(meta_split_path):
+        logging.error("no split results found")
+        return
+
+    split_results = glob.glob(f"{meta_split_path.rstrip('/')}/*")
+    meta = []
+    for split_result in split_results:
+        meta.extend(glob.glob(split_result.rstrip('/') + "/*.*"))
+    
+    logging.info("collect done...")
+
+    if save:
+        os.mkdir('./meta')
+        copy_files(meta, './meta', verbose=False)
+        logging.info("meta files saved at ./meta")
+
+    return meta
 
 def copy_files(src_files: Union[list, str], dest_dir: str, verbose: bool = True, max_num:int=None) -> None:
     """
@@ -277,6 +327,9 @@ def copy_files(src_files: Union[list, str], dest_dir: str, verbose: bool = True,
         if len(src_files) == 0: 
             logging.warning("src_files为空, 请检查路径是否正确或者去掉源文件路径的.开头")
             return
+    
+    if not os.path.exists(dest_dir):
+        os.mkdir(dest_dir)
 
     if max_num is not None:
         src_files = random.sample(src_files, min(max_num, len(src_files)))
@@ -297,7 +350,7 @@ def copy_files(src_files: Union[list, str], dest_dir: str, verbose: bool = True,
                 logging.info(f"{file} 已复制至 {dest_dir}")
 
 
-def spilt_train_test(li_path: str, train_img_path: str, test_img_path: str,
+def spilt_train_test(li_path: Union[str, list], train_img_path: str, test_img_path: str,
                      train_label_path: str, test_label_path: str, negative_path: str = None,
                      test_size: Union[int, float] = .2, random_state: int = 110,
                      upset_photo: bool = False, verbose=True):
@@ -320,19 +373,26 @@ def spilt_train_test(li_path: str, train_img_path: str, test_img_path: str,
     path = li_path
     random.seed(random_state)
     
-    img_path = glob.glob(os.path.join(path, '*.jpg')) + glob.glob(os.path.join(path, '*.png')) + glob.glob(os.path.join(path, '*.jpeg'))
-    label_path = [x for x in glob.glob(os.path.join(path, '*.txt')) if "class" not in x]
+    if isinstance(li_path, str):
+        img_path = glob.glob(os.path.join(path, '*.jpg')) + glob.glob(os.path.join(path, '*.png')) + glob.glob(os.path.join(path, '*.jpeg'))
+        label_path = [x for x in glob.glob(os.path.join(path, '*.txt')) if "class" not in x]
     
+    if isinstance(li_path, list):
+        img_path = [x for x in li_path if x.endswith(('.jpg', '.png', '.jpeg'))]
+        label_path = [x for x in li_path if x.endswith('.txt')]
+        
     if isinstance(test_size, float):
         test_img = random.sample(img_path, int(len(img_path) * test_size))
     else:
         test_img = random.sample(img_path, test_size)
-    test_label = [x for x in label_path if any(x[:-4] + ext in test_img for ext in ['.jpg', '.png', '.jpeg'])]
     
+    test_label_names = [x.rsplit('/')[-1].split('.')[0] for x in test_img]
+    test_label = [x for x in label_path if x.rsplit('/')[-1].split('.')[0] in test_label_names]
     train_img = [x for x in img_path if x not in test_img]
+
     if negative_path is not None:
-        train_img += random.sample(glob.glob(os.path.join(negative_path, '*.jpg')), min(1000, int(len(train_img) * .1)))
-    
+        train_img += random.sample(glob.glob(os.path.join(negative_path, '*.jpg')), min(2500, int(len(train_img) * .1)))
+
     train_label = [x for x in label_path if x not in test_label]
     
     if upset_photo:
@@ -404,7 +464,7 @@ def train(model_selection: str, yaml_data: str, yolo_world: bool=False, epochs: 
     logging.info(f'Echo: In this train time, we use the seed of {seed}.')
 
 
-def eval(model_selection: str, yaml_data: str, yolo_world=False) -> None:
+def eval(model_selection: str, yaml_data: str, yolo_world=False) -> any:
     """
     使用指定的模型和数据集评估模型。
 
@@ -414,10 +474,12 @@ def eval(model_selection: str, yaml_data: str, yolo_world=False) -> None:
     - yolo_world (bool): 是否使用YOLOWorld模型，默认为False。
     """
     
-    if yolo_world: YOLOWorld(model_selection).val(data=yaml_data)
-    else: YOLO(model_selection).val(data=yaml_data)
+    if yolo_world: result = YOLOWorld(model_selection).val(data=yaml_data)
+    else: result = YOLO(model_selection).val(data=yaml_data)
     
     logging.info("Evaluation finished.")
+
+    return result
 
 
 def get_best_last_model(model_path: str = "./runs/detect/train/weights", index: int = None, mode: int = 0) -> str:
@@ -491,7 +553,7 @@ def get_infer_data(path_dir: str, typing: InferDataType = InferDataType.IMAGE, m
         return imgs
 
 
-def predict(model_selection: str, img_path: str, yolo_world=False, conf: float = 0.8, save: bool = False,
+def predict(model_selection: str, img_path: str, yolo_world=False, conf: float = 0.5, save: bool = False,
                 show: bool = True, verbose: bool = True, stream: bool = False):
     """
     使用YOLO/YOLOWORLD模型进行预测。
@@ -513,8 +575,90 @@ def predict(model_selection: str, img_path: str, yolo_world=False, conf: float =
     
     cv2.waitKey(0)
     cv2.destroyAllWindows()
-  
-    
+
+def add_pillow_text(img_array:np.array, font_path: str, text: str, position, textColor=(255, 255, 255), textSize: int = 20):
+    """
+    在给定的图像数组上添加文本。
+
+    参数：
+    - img_array: np.array - 输入图像数组。
+    - font_path: str - 字体文件路径。
+    - text: str - 要添加到图像上的文本。
+    - position: tuple - 文本在图像上的位置（左上角）。
+    - textColor: tuple - 文本颜色（默认为白色）。
+    - textSize: int - 文本大小（默认为20）。
+
+    返回：
+    - 添加文本后的图像数组。
+    """
+
+    img = Image.fromarray(cv2.cvtColor(img_array, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(img)
+
+    fontStyle = ImageFont.truetype(
+        font_path, textSize, encoding="utf-8")
+    draw.text(position, text, textColor, font=fontStyle)
+
+    return cv2.cvtColor(np.asarray(img), cv2.COLOR_RGB2BGR)
+
+
+def advanced_predict(model_selection: str, img_path: Union[str, list], yolo_world=False, conf: float = 0.5,
+                    save: bool = False, show: bool = True, font_path=None, replace_text: dict = None):
+    """
+    使用YOLO模型进行高级预测。
+
+    参数:
+    - model_selection (str): 模型选择字符串，用于指定使用的YOLO模型。
+    - img_path (Union[str, list]): 图像路径或路径列表，表示要进行预测的图像。
+    - yolo_world (bool, optional): 是否使用YOLOWorld模型，默认为False。
+    - conf (float, optional): 置信度阈值，默认为0.5。
+    - save (bool, optional): 是否保存预测结果图像，默认为False。
+    - show (bool, optional): 是否显示预测结果图像，默认为True。
+    - font_path (str, optional): 字体文件路径，用于在图像上添加文本。
+    - replace_text (dict, optional): 替换文本的字典，用于替换检测到的对象名称。
+    """
+
+    if yolo_world: model = YOLOWorld(model_selection)
+    else: model = YOLO(model_selection)
+
+    if isinstance(img_path, str) and not img_path.endswith(('.jpg', '.png', '.jpeg')):
+        img_path = [file for x in ['jpg', 'png', 'jpeg'] for file in glob.glob(os.path.join(img_path, f'*.{x}'))]
+        
+    results = model(img_path, conf=conf, show=False, save=False, verbose=False)
+    for result in results:
+        names = result.names
+        if replace_text is not None:
+            names = replace_text
+        boxes = result.boxes
+        orig_img = result.orig_img
+        path = result.path
+
+        for index in range(len(boxes)):
+            cls_ = names[boxes[index].cls.cpu().item()]
+            x1, y1, x2, y2 = np.int_(boxes.xyxy[index].cpu().numpy())
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(orig_img.shape[1], x2), min(orig_img.shape[0], y2)
+            cv2.rectangle(orig_img, (x1, y1), (x2, y2), (220, 110, 10), 3)
+            text_x = max(0, x1)
+            text_y = y1
+            
+            text_bg_color = (220, 110, 10)
+            cv2.rectangle(orig_img, (text_x, text_y - 1), (text_x + 50, text_y + 23), text_bg_color, -1)
+            if font_path is not None:
+                orig_img = add_pillow_text(orig_img, font_path, cls_, (text_x, text_y), textSize=22)
+            else: cv2.putText(orig_img, cls_, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+
+        if show:
+            cv2.imshow('result', orig_img)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+        if save:
+            if not os.path.exists('results'):
+                os.mkdir('./results')
+            cv2.imwrite("results/" + path.split('\\')[-1], orig_img)
+
+    logging.info("Prediction finished.")
+
 def export_model(model_selection: str, yolo_world: bool=False, format: str="onnx"):
     """
     根据模型选择和是否为YOLOWorld模型来创建相应的模型实例，并将其导出为指定的格式。
@@ -535,13 +679,13 @@ def export_model(model_selection: str, yolo_world: bool=False, format: str="onnx
 
 if __name__ == '__main__':
     
-    spilt_train_test("./meta9000/",
-                 "data/train/images/", "data/val/images/",
+    meta = collcet_meta(meta_split_path='./meta_split_results')
+
+    spilt_train_test(meta, "data/train/images/", "data/val/images/",
                 "data/train/labels/", "data/val/labels/",
-                negative_path='./Negative/', test_size=.1,
+                negative_path='./Negative/', test_size=.2,
                 random_state=110, upset_photo=True, verbose=False)
 
-    model = get_best_last_model()
-    train(model_selection=model, yaml_data="./data/data.yaml",
-     yolo_world=False, val=True, epochs=100, batch=96, seed_change=False,
-     imgsz=320, resume=False, single_cls=True, optimizer="SGD", lr=0.0007, patience=50)
+    train(model_selection='yolo11n.pt', yaml_data="./data/data.yaml",
+     yolo_world=False, val=True, epochs=200, batch=108, seed_change=False,
+     imgsz=320, resume=False, single_cls=True, optimizer="SGD", patience=50)
