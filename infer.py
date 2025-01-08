@@ -245,7 +245,7 @@ def rm_files(src_files: str, target_file: str) -> None:
             os.remove(img)
             logging.info(f"{img} 已删除")
 
-def split_meta(meta_path: str, split_name: str="meta", split_num: int=5):
+def split_meta(meta_path: str, split_name: str="meta", split_num: int=5, match: bool=True) -> None:
     """
     根据给定的路径分割元数据。
 
@@ -255,12 +255,20 @@ def split_meta(meta_path: str, split_name: str="meta", split_num: int=5):
     - meta_path: 包含图片和标签文件的路径。
     - split_name: 分割后的文件夹名称前缀。
     - split_num: 分割的数量。
+    - match: 是否匹配图片和标签，默认为True。
     """
     
     imgs = []
     for ext in ["jpg", "png", "jpeg"]:
         imgs.extend(glob.glob(meta_path.rstrip('/') + f"/*.{ext}"))
     labels = glob.glob(meta_path.rstrip('/') + "/*.txt")
+    
+    if match:
+        img_dict = {os.path.splitext(os.path.basename(img))[0]: img for img in imgs}
+        label_dict = {os.path.splitext(os.path.basename(label))[0]: label for label in labels}
+        common_keys = set(img_dict.keys()).intersection(set(label_dict.keys()))
+        imgs = [img_dict[key] for key in common_keys]
+        labels = [label_dict[key] for key in common_keys]
     
     if len(imgs) != len(labels): 
         logging.error("imgs and labels not match")
@@ -350,24 +358,25 @@ def copy_files(src_files: Union[list, str], dest_dir: str, verbose: bool = True,
                 logging.info(f"{file} 已复制至 {dest_dir}")
 
 
-def spilt_train_test(li_path: Union[str, list], train_img_path: str, test_img_path: str,
-                     train_label_path: str, test_label_path: str, negative_path: str = None,
-                     test_size: Union[int, float] = .2, random_state: int = 110,
-                     upset_photo: bool = False, verbose=True):
+def spilt_train_test(li_path: Union[str, list], train_img_path: str, val_img_path: str,
+                     train_label_path: str, val_label_path: str, negative_path: str = None,
+                     val_size: Union[int, float] = .2, random_state: int = 110,
+                     upset_photo: bool = False, verbose=True, need_test: bool = False):
     """
-    将数据集划分为训练集和测试集，并将图片和标签复制到指定目录。
+    将数据集划分为训练集和验证集，并将图片和标签复制到指定目录。
 
     参数:
     - li_path (str): 包含图片和标签的源目录路径。
     - train_img_path (str): 训练集图片保存路径。
-    - test_img_path (str): 测试集图片保存路径。
+    - val_img_path (str): 验证集图片保存路径。
     - train_label_path (str): 训练集标签保存路径。
-    - test_label_path (str): 测试集标签保存路径。
-    - test_size (float): 测试集比例，默认为None。
+    - val_label_path (str): 验证集标签保存路径。
+    - val_size (float): 验证集比例，默认为None。
     - random_state (int): 随机种子，默认为110。
     - upset_photo (bool): 是否重置训练文件，默认为False。
     - verbose (bool): 是否输出详细信息，默认为True。
     - negative_path (str): 负样本图片路径，默认为None。
+    - need_test (bool): 是否需要测试集，默认为False。
     """
 
     path = li_path
@@ -381,43 +390,76 @@ def spilt_train_test(li_path: Union[str, list], train_img_path: str, test_img_pa
         img_path = [x for x in li_path if x.endswith(('.jpg', '.png', '.jpeg'))]
         label_path = [x for x in li_path if x.endswith('.txt')]
         
-    if isinstance(test_size, float):
-        test_img = random.sample(img_path, int(len(img_path) * test_size))
+    if isinstance(val_size, float):
+        val_img = random.sample(img_path, int(len(img_path) * val_size))
     else:
-        test_img = random.sample(img_path, test_size)
+        val_img = random.sample(img_path, val_size)
     
-    test_label_names = [x.rsplit('/')[-1].split('.')[0] for x in test_img]
-    test_label = [x for x in label_path if x.rsplit('/')[-1].split('.')[0] in test_label_names]
-    train_img = [x for x in img_path if x not in test_img]
+    val_label_names = [x.rsplit('/')[-1].split('.')[0] for x in val_img]
+    val_label = [x for x in label_path if x.rsplit('/')[-1].split('.')[0] in val_label_names]
+    train_img = [x for x in img_path if x not in val_img]
 
-    if negative_path is not None:
-        train_img += random.sample(glob.glob(os.path.join(negative_path, '*.jpg')), min(2500, int(len(train_img) * .1)))
+    train_label = [x for x in label_path if x not in val_label]
 
-    train_label = [x for x in label_path if x not in test_label]
-    
     if upset_photo:
         t_img = train_img_path
-        v_img = test_img_path
+        v_img = val_img_path
 
         t_label = train_label_path
-        v_label = test_label_path
-        
+        v_label = val_label_path
+
+        for item in [t_img, v_img, t_label, v_label]:
+            if not os.path.exists(item):
+                os.makedirs(item)
+
         tree = glob.glob(os.path.join(t_img, '*.*')) + glob.glob(os.path.join(v_img, '*.*')) + glob.glob(os.path.join(t_label, '*.*')) + glob.glob(os.path.join(v_label, '*.*'))
+        
+        if need_test:
+            te_img = train_img_path.replace('train', 'test')
+            te_label = train_label_path.replace('train', 'test')
+
+            if not os.path.exists(te_img):
+                os.makedirs(te_img)
+            if not os.path.exists(te_label):
+                os.makedirs(te_label)
+
+            test_img = random.sample(train_img, 100)
+            test_name = [x.rsplit('/')[-1].split('.')[0] for x in test_img]
+            test_label = [x for x in label_path if x.rsplit('/')[-1].split('.')[0] in test_name]
+
+            for img in test_img:
+                train_img.remove(img)
+            
+            for label in test_label:
+                train_label.remove(label)
+            
+            tree += glob.glob(os.path.join(te_img, '*.*')) + glob.glob(os.path.join(te_label, '*.*'))
+
         for file in tree:
             os.unlink(file)
         logging.info('已删除所有训练文件.')
 
+    if negative_path is not None:
+        train_img += random.sample(glob.glob(os.path.join(negative_path, '*.jpg')), min(2500, int(len(train_img) * .1)))
+
     copy_files(train_img, train_img_path, verbose)
     logging.info("训练图片复制完毕")
     
-    copy_files(test_img, test_img_path, verbose)
-    logging.info("测试图片复制完毕")
+    copy_files(val_img, val_img_path, verbose)
+    logging.info("验证图片复制完毕")
     
     copy_files(train_label, train_label_path, verbose)
     logging.info("训练标签复制完毕")
     
-    copy_files(test_label, test_label_path, verbose)
-    logging.info("测试标签复制完毕")
+    copy_files(val_label, val_label_path, verbose)
+    logging.info("验证标签复制完毕")
+
+    if need_test:
+        copy_files(test_img, te_img, verbose)
+        logging.info("测试图片复制完毕")
+
+        copy_files(test_label, te_label, verbose)
+        logging.info("测试标签复制完毕")
     
     logging.info('执行完毕')
 
@@ -506,11 +548,11 @@ def get_best_last_model(model_path: str = "./runs/detect/train/weights", index: 
 
     if mode == 0:
         path = next(x for x in models if "best" in os.path.basename(x))
-        logging.info(f"选取最佳模型: {path}")
+        logging.info(f"攫取最佳模型: {path}")
 
     elif mode == 1:
         path = next(x for x in models if "last" in os.path.basename(x))
-        logging.info(f"选取最后一个模型: {path}")
+        logging.info(f"攫取最后一个模型: {path}")
 
     logging.info("Model fetched successfully.")
 
@@ -575,6 +617,7 @@ def predict(model_selection: str, img_path: str, yolo_world=False, conf: float =
     
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+
 
 def add_pillow_text(img_array:np.array, font_path: str, text: str, position, textColor=(255, 255, 255), textSize: int = 20):
     """
@@ -655,7 +698,7 @@ def advanced_predict(model_selection: str, img_path: Union[str, list], yolo_worl
         if save:
             if not os.path.exists('results'):
                 os.mkdir('./results')
-            cv2.imwrite("results/" + path.split('\\')[-1], orig_img)
+            cv2.imwrite("results/" + path.split('/')[-1], orig_img)
 
     logging.info("Prediction finished.")
 
@@ -682,10 +725,10 @@ if __name__ == '__main__':
     meta = collcet_meta(meta_split_path='./meta_split_results')
 
     spilt_train_test(meta, "data/train/images/", "data/val/images/",
-                "data/train/labels/", "data/val/labels/",
-                negative_path='./Negative/', test_size=.2,
+                "data/train/labels/", "data/val/labels/", val_size=.2,
+                negative_path='./Negative/', need_test=False,
                 random_state=110, upset_photo=True, verbose=False)
 
-    train(model_selection='yolo11n.pt', yaml_data="./data/data.yaml",
-     yolo_world=False, val=True, epochs=200, batch=108, seed_change=False,
-     imgsz=320, resume=False, single_cls=True, optimizer="SGD", patience=50)
+    train(model_selection=get_best_last_model(), yaml_data="./data/data.yaml",
+     yolo_world=False, val=True, epochs=150, batch=108, seed_change=False,
+     imgsz=320, resume=True, single_cls=True, optimizer="SGD", patience=50)
